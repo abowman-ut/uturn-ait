@@ -1,7 +1,13 @@
 <script>
 	import favicon from '$lib/assets/favicon.svg';
+	import { page } from '$app/stores';
 
 	let { children } = $props();
+
+	// Helper function to check if a route is active
+	function isActive(path) {
+		return $page.url.pathname === path;
+	}
 </script>
 
 <svelte:head>
@@ -22,10 +28,18 @@
 		</button>
 		<div class="collapse navbar-collapse" id="navbarNav">
 			<div class="d-flex gap-2">
-				<a class="btn btn-outline-light btn-sm" href="/hours">
+				<a 
+					class="btn {isActive('/hours') ? 'btn-light' : 'btn-outline-light'} btn-sm" 
+					href="/hours"
+					aria-current={isActive('/hours') ? 'page' : undefined}
+				>
 					<i class="bi bi-clock me-1"></i> Hours
 				</a>
-				<a class="btn btn-outline-light btn-sm" href="/forecast">
+				<a 
+					class="btn {isActive('/forecast') ? 'btn-light' : 'btn-outline-light'} btn-sm" 
+					href="/forecast"
+					aria-current={isActive('/forecast') ? 'page' : undefined}
+				>
 					<i class="bi bi-graph-up me-1"></i> Forecast
 				</a>
 			</div>

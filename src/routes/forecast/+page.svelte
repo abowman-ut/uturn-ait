@@ -50,51 +50,62 @@
 		if (browser) {
 			setTimeout(() => {
 				initTooltips();
-				// Initialize charts after data loads
-				setTimeout(() => {
-					updateChart();
-					updateOpexCapexChart();
-				}, 500);
+				// Charts will be lazy-loaded when they become visible via $effect
 			}, 200);
 		}
 	});
 
-	// Reactive statement to update charts when data changes or visibility changes
+	// Lazy load charts: Only initialize when they become visible
 	$effect(() => {
+		if (!browser) return;
+		
 		// Track visibility changes
 		const currentVisibleChart = visibleChart;
 		
-		// Destroy charts when they become hidden
+		// Track dependencies for reactivity
+		selectedYear;
+		forecastData;
+		teammates;
+		plusValue;
+		
+		// Destroy and cleanup charts when they become hidden
 		if (currentVisibleChart !== 'total' && chartInstance) {
 			chartInstance.destroy();
 			chartInstance = null;
+			// Clear canvas reference when chart is hidden (canvas removed from DOM)
+			if (chartCanvas) {
+				chartCanvas = null;
+			}
 		}
 		if (currentVisibleChart !== 'opexcapex' && opexCapexChartInstance) {
 			opexCapexChartInstance.destroy();
 			opexCapexChartInstance = null;
+			// Clear canvas reference when chart is hidden (canvas removed from DOM)
+			if (opexCapexChartCanvas) {
+				opexCapexChartCanvas = null;
+			}
 		}
 		
-		if (browser && currentVisibleChart === 'total' && chartCanvas && teammates.length > 0) {
-			// Track dependencies
-			selectedYear;
-			forecastData;
-			teammates;
-			plusValue;
-			// Small delay to ensure canvas is rendered
-			setTimeout(() => {
-				updateChart();
-			}, 50);
+		// Lazy load total forecast chart only when visible and canvas is available
+		if (currentVisibleChart === 'total' && chartCanvas && teammates.length > 0) {
+			// Use requestAnimationFrame to ensure canvas is fully rendered in DOM
+			requestAnimationFrame(() => {
+				// Double-check canvas is still available and visible before initializing
+				if (chartCanvas && visibleChart === 'total' && chartCanvas.isConnected) {
+					updateChart();
+				}
+			});
 		}
-		if (browser && currentVisibleChart === 'opexcapex' && opexCapexChartCanvas && teammates.length > 0) {
-			// Track dependencies
-			selectedYear;
-			forecastData;
-			teammates;
-			plusValue;
-			// Small delay to ensure canvas is rendered
-			setTimeout(() => {
-				updateOpexCapexChart();
-			}, 50);
+		
+		// Lazy load OPEX/CAPEX chart only when visible and canvas is available
+		if (currentVisibleChart === 'opexcapex' && opexCapexChartCanvas && teammates.length > 0) {
+			// Use requestAnimationFrame to ensure canvas is fully rendered in DOM
+			requestAnimationFrame(() => {
+				// Double-check canvas is still available and visible before initializing
+				if (opexCapexChartCanvas && visibleChart === 'opexcapex' && opexCapexChartCanvas.isConnected) {
+					updateOpexCapexChart();
+				}
+			});
 		}
 	});
 
