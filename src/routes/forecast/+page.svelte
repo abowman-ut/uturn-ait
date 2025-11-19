@@ -290,6 +290,7 @@
 		
 		if (!client.models.Teammate) {
 			console.warn('Teammate model not found. Schema may need to be deployed.');
+			isLoadingTeammates = false;
 			return;
 		}
 		
@@ -299,6 +300,7 @@
 			teammates = result.data || [];
 		} catch (error) {
 			console.error('Error loading teammates:', error);
+			teammates = [];
 		} finally {
 			isLoadingTeammates = false;
 		}
@@ -418,6 +420,39 @@
 	function getForecastValue(teammateId, month) {
 		const key = `${teammateId}_${selectedYear}`;
 		return forecastData[key]?.[month] || '';
+	}
+
+	function calculateCellValue(teammate, month) {
+		const forecastValue = getForecastValue(teammate.id, month);
+		if (!forecastValue || forecastValue === '') {
+			return '';
+		}
+		const numValue = parseFloat(forecastValue);
+		if (isNaN(numValue)) {
+			return '';
+		}
+		const baseRate = teammate.baseRate || 0;
+		const result = baseRate * numValue * 173.33;
+		return Math.round(result).toLocaleString('en-US');
+	}
+
+	function calculateColumnTotal(month) {
+		if (!teammates || teammates.length === 0) {
+			return '';
+		}
+		let total = 0;
+		teammates.forEach(teammate => {
+			if (!teammate || !teammate.id) return;
+			const forecastValue = getForecastValue(teammate.id, month);
+			if (forecastValue && forecastValue !== '') {
+				const numValue = parseFloat(forecastValue);
+				if (!isNaN(numValue)) {
+					const baseRate = teammate.baseRate || 0;
+					total += baseRate * numValue * 173.33;
+				}
+			}
+		});
+		return Math.round(total).toLocaleString('en-US');
 	}
 
 	async function setForecastValue(teammateId, month, value) {
@@ -627,22 +662,22 @@
 						<p class="text-muted">No teammates found. Add teammates in the admin panel.</p>
 					{:else}
 						<div class="table-responsive">
-							<table class="table table-sm table-hover table-bordered forecast-table">
+							<table class="table table-sm table-hover table-bordered forecast-table small text-muted">
 								<thead>
-									<tr>
+									<tr class="table-light">
 										<th class="text-end">{selectedYear}</th>
-										<th>Jan</th>
-										<th>Feb</th>
-										<th>Mar</th>
-										<th>Apr</th>
-										<th>May</th>
-										<th>Jun</th>
-										<th>Jul</th>
-										<th>Aug</th>
-										<th>Sep</th>
-										<th>Oct</th>
-										<th>Nov</th>
-										<th>Dec</th>
+										<th class="text-end">JAN</th>
+										<th class="text-end">FEB</th>
+										<th class="text-end">MAR</th>
+										<th class="text-end">APR</th>
+										<th class="text-end">MAY</th>
+										<th class="text-end">JUN</th>
+										<th class="text-end">JUL</th>
+										<th class="text-end">AUG</th>
+										<th class="text-end">SEP</th>
+										<th class="text-end">OCT</th>
+										<th class="text-end">NOV</th>
+										<th class="text-end">DEC</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -657,7 +692,7 @@
 											</div>
 										`}
 										{@const isExpanded = expandedRows.has(teammate.id)}
-										{@const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']}
+										{@const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']}
 										<tr>
 											<td class="text-nowrap">
 												<button
@@ -679,28 +714,22 @@
 													aria-label="View grouping values"
 												></i>
 											</td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
-											<td class="text-nowrap"></td>
+											{#each months as month}
+												{@const cellValue = calculateCellValue(teammate, month)}
+												<td class="text-nowrap text-end">
+													{cellValue ? `$${cellValue}` : ''}
+												</td>
+											{/each}
 										</tr>
 										{#if isExpanded}
 											<tr class="table-light">
 												<td class="text-nowrap small text-muted">Forecast</td>
 												{#each months as month}
-													<td class="text-nowrap">
+													<td class="text-nowrap text-end">
 														<input
 															type="number"
 															step="0.01"
-															class="form-control form-control-sm"
+															class="form-control form-control-sm text-end"
 															placeholder="0"
 															value={getForecastValue(teammate.id, month)}
 															oninput={(e) => setForecastValue(teammate.id, month, e.target.value)}
@@ -710,6 +739,18 @@
 											</tr>
 										{/if}
 									{/each}
+									<!-- Totals Row -->
+									<tr class="fw-bold">
+										<td class="text-nowrap text-end">Total</td>
+										{#each ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as month}
+											<td class="text-nowrap text-end">
+												{(() => {
+													const total = calculateColumnTotal(month);
+													return total ? `$${total}` : '';
+												})()}
+											</td>
+										{/each}
+									</tr>
 								</tbody>
 							</table>
 						</div>
@@ -741,7 +782,14 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label="Admin panel"
+		tabindex="0"
 		onclick={(e) => e.stopPropagation()}
+		onkeydown={(e) => {
+			e.stopPropagation();
+			if (e.key === 'Escape') {
+				toggleAdminWindow();
+			}
+		}}
 		transition:slide={{ axis: 'x', duration: 300 }}
 	>
 		<div class="d-flex flex-column h-100">
@@ -1021,7 +1069,7 @@
 
 								<!-- Groupings Associations -->
 								<div class="mb-3">
-									<label class="form-label small fw-bold">Contract *</label>
+									<div class="form-label small fw-bold">Contract *</div>
 									<div class="d-flex flex-wrap gap-1">
 										{#each contracts as contract}
 											<button
@@ -1039,7 +1087,7 @@
 								</div>
 
 								<div class="mb-3">
-									<label class="form-label small fw-bold">Expense Type *</label>
+									<div class="form-label small fw-bold">Expense Type *</div>
 									<div class="d-flex flex-wrap gap-1">
 										{#each expenseTypes as expenseType}
 											<button
@@ -1057,7 +1105,7 @@
 								</div>
 
 								<div class="mb-3">
-									<label class="form-label small fw-bold">Company *</label>
+									<div class="form-label small fw-bold">Company *</div>
 									<div class="d-flex flex-wrap gap-1">
 										{#each companies as company}
 											<button
@@ -1075,7 +1123,7 @@
 								</div>
 
 								<div class="mb-3">
-									<label class="form-label small fw-bold">Resource Group *</label>
+									<div class="form-label small fw-bold">Resource Group *</div>
 									<div class="d-flex flex-wrap gap-1">
 										{#each resourceGroups as resourceGroup}
 											<button
@@ -1093,7 +1141,7 @@
 								</div>
 
 								<div class="mb-3">
-									<label class="form-label small fw-bold">Resource Type *</label>
+									<div class="form-label small fw-bold">Resource Type *</div>
 									<div class="d-flex flex-wrap gap-1">
 										{#each resourceTypes as resourceType}
 											<button
