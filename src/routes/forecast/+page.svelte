@@ -10,6 +10,7 @@
 	let showAdminWindow = $state(false);
 	let activeScreen = $state('groupings'); // 'groupings' or 'teammates'
 	let activeTeammateScreen = $state('add'); // 'add' or 'existing'
+	let selectedYear = $state(2025);
 
 	// Groupings data
 	let contracts = $state([]);
@@ -116,9 +117,46 @@
 		}
 	}
 
+	// Initialize Bootstrap tooltips
+	function initTooltips() {
+		if (!browser || typeof window.bootstrap === 'undefined') return;
+		
+		// Destroy existing tooltips first
+		const existingTooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+		existingTooltips.forEach(el => {
+			const tooltipInstance = window.bootstrap.Tooltip.getInstance(el);
+			if (tooltipInstance) {
+				tooltipInstance.dispose();
+			}
+		});
+		
+		// Initialize new tooltips
+		const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+		tooltipTriggerList.forEach(tooltipTriggerEl => {
+			new window.bootstrap.Tooltip(tooltipTriggerEl);
+		});
+	}
+
 	// Load on mount
 	onMount(() => {
 		loadGroupings();
+		loadTeammates();
+		
+		// Initialize Bootstrap tooltips after DOM is ready
+		if (browser) {
+			setTimeout(() => {
+				initTooltips();
+			}, 200);
+		}
+	});
+
+	// Re-initialize tooltips when teammates data changes
+	$effect(() => {
+		if (browser && teammates.length > 0) {
+			setTimeout(() => {
+				initTooltips();
+			}, 100);
+		}
 	});
 
 	function toggleAdminWindow() {
@@ -223,6 +261,7 @@
 
 	// Teammates data
 	let teammates = $state([]);
+	let isLoadingTeammates = $state(false);
 	let isEditingTeammate = $state(false);
 	let editingTeammateId = $state(null);
 	let teammateName = $state('');
@@ -242,11 +281,14 @@
 			return;
 		}
 		
+		isLoadingTeammates = true;
 		try {
 			const result = await client.models.Teammate.list();
 			teammates = result.data || [];
 		} catch (error) {
 			console.error('Error loading teammates:', error);
+		} finally {
+			isLoadingTeammates = false;
 		}
 	}
 
@@ -413,11 +455,18 @@
 			transform: rotate(360deg);
 		}
 	}
+
+	.forecast-table th,
+	.forecast-table td {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
 </style>
 
 <div class="container mt-5">
 	<div class="row justify-content-center">
-		<div class="col-md-8">
+		<div class="col-md-12">
 			<div class="card">
 				<div class="card-header d-flex justify-content-between align-items-center">
 					<h1 class="card-title mb-0">
@@ -434,16 +483,99 @@
 					</button>
 				</div>
 				<div class="card-body">
-					<p class="card-text">
-						View forecast data and analytics.
-					</p>
-					
-					<div class="mt-4">
-						<h5>Forecast Information</h5>
-						<p class="text-muted">
-							Content for forecast section will be displayed here.
-						</p>
+					<div class="d-flex justify-content-between align-items-center mb-3">
+						<h5 class="mb-0">
+							<i class="bi bi-people me-2"></i>
+							Teammates
+						</h5>
+						<div class="d-flex align-items-center gap-2">
+							<label for="year-select" class="form-label mb-0 small">Year:</label>
+							<select 
+								id="year-select"
+								class="form-select form-select-sm" 
+								style="width: auto;"
+								bind:value={selectedYear}
+							>
+								<option value={2025}>2025</option>
+								<option value={2026}>2026</option>
+								<option value={2027}>2027</option>
+								<option value={2028}>2028</option>
+								<option value={2029}>2029</option>
+								<option value={2030}>2030</option>
+							</select>
+						</div>
 					</div>
+					
+					{#if isLoadingTeammates}
+						<div class="text-center py-3">
+							<div class="spinner-border spinner-border-sm text-primary" role="status">
+								<span class="visually-hidden">Loading...</span>
+							</div>
+						</div>
+					{:else if teammates.length === 0}
+						<p class="text-muted">No teammates found. Add teammates in the admin panel.</p>
+					{:else}
+						<div class="table-responsive">
+							<table class="table table-sm table-hover table-bordered forecast-table">
+								<thead>
+									<tr>
+										<th class="text-end">{selectedYear}</th>
+										<th>Jan</th>
+										<th>Feb</th>
+										<th>Mar</th>
+										<th>Apr</th>
+										<th>May</th>
+										<th>Jun</th>
+										<th>Jul</th>
+										<th>Aug</th>
+										<th>Sep</th>
+										<th>Oct</th>
+										<th>Nov</th>
+										<th>Dec</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each teammates as teammate}
+										{@const tooltipContent = `
+											<div style="text-align: left;">
+												<div><strong>Contract:</strong> ${teammate.contracts?.join(', ') || 'None'}</div>
+												<div><strong>Expense Type:</strong> ${teammate.expenseTypes?.join(', ') || 'None'}</div>
+												<div><strong>Company:</strong> ${teammate.companies?.join(', ') || 'None'}</div>
+												<div><strong>Resource Group:</strong> ${teammate.resourceGroups?.join(', ') || 'None'}</div>
+												<div><strong>Resource Type:</strong> ${teammate.resourceTypes?.join(', ') || 'None'}</div>
+											</div>
+										`}
+										<tr>
+											<td class="text-nowrap">
+												<strong>{teammate.name}</strong>
+												<i 
+													class="bi bi-info-circle text-info ms-1" 
+													style="cursor: help; font-size: 0.875rem;"
+													data-bs-toggle="tooltip"
+													data-bs-html="true"
+													data-bs-placement="top"
+													title={tooltipContent}
+													aria-label="View grouping values"
+												></i>
+											</td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+											<td class="text-nowrap"></td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
