@@ -4,6 +4,9 @@
 	import '$lib/amplify';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
+	import { Chart, registerables } from 'chart.js';
+	
+	Chart.register(...registerables);
 
 	const client = generateClient();
 	
@@ -147,7 +150,49 @@
 		if (browser) {
 			setTimeout(() => {
 				initTooltips();
+				// Initialize charts after data loads
+				setTimeout(() => {
+					updateChart();
+					updateOpexCapexChart();
+				}, 500);
 			}, 200);
+		}
+	});
+
+	// Reactive statement to update charts when data changes or visibility changes
+	$effect(() => {
+		// Track visibility changes
+		const currentVisibleChart = visibleChart;
+		
+		// Destroy charts when they become hidden
+		if (currentVisibleChart !== 'total' && chartInstance) {
+			chartInstance.destroy();
+			chartInstance = null;
+		}
+		if (currentVisibleChart !== 'opexcapex' && opexCapexChartInstance) {
+			opexCapexChartInstance.destroy();
+			opexCapexChartInstance = null;
+		}
+		
+		if (browser && currentVisibleChart === 'total' && chartCanvas && teammates.length > 0) {
+			// Track dependencies
+			selectedYear;
+			forecastData;
+			teammates;
+			// Small delay to ensure canvas is rendered
+			setTimeout(() => {
+				updateChart();
+			}, 50);
+		}
+		if (browser && currentVisibleChart === 'opexcapex' && opexCapexChartCanvas && teammates.length > 0) {
+			// Track dependencies
+			selectedYear;
+			forecastData;
+			teammates;
+			// Small delay to ensure canvas is rendered
+			setTimeout(() => {
+				updateOpexCapexChart();
+			}, 50);
 		}
 	});
 
@@ -455,6 +500,220 @@
 		return Math.round(total).toLocaleString('en-US');
 	}
 
+	function getColumnTotalNumeric(month) {
+		if (!teammates || teammates.length === 0) {
+			return 0;
+		}
+		let total = 0;
+		teammates.forEach(teammate => {
+			if (!teammate || !teammate.id) return;
+			const forecastValue = getForecastValue(teammate.id, month);
+			if (forecastValue && forecastValue !== '') {
+				const numValue = parseFloat(forecastValue);
+				if (!isNaN(numValue)) {
+					const baseRate = teammate.baseRate || 0;
+					total += baseRate * numValue * 173.33;
+				}
+			}
+		});
+		return Math.round(total);
+	}
+
+	// Chart instances
+	let chartCanvas = $state(null);
+	let chartInstance = null;
+	let opexCapexChartCanvas = $state(null);
+	let opexCapexChartInstance = null;
+	const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+	// Chart visibility - only one chart visible at a time
+	let visibleChart = $state('total'); // 'total' or 'opexcapex'
+
+	// Categorize expense types as OPEX or CAPEX
+	// This can be customized based on your expense type naming
+	function isOpex(expenseType) {
+		if (!expenseType) return true; // Default to OPEX if not specified
+		const opexKeywords = ['opex', 'operating', 'operational', 'expense', 'maintenance', 'support'];
+		const lowerExpenseType = expenseType.toLowerCase();
+		return opexKeywords.some(keyword => lowerExpenseType.includes(keyword));
+	}
+
+	function getOpexTotalNumeric(month) {
+		if (!teammates || teammates.length === 0) {
+			return 0;
+		}
+		let total = 0;
+		teammates.forEach(teammate => {
+			if (!teammate || !teammate.id) return;
+			const forecastValue = getForecastValue(teammate.id, month);
+			if (forecastValue && forecastValue !== '') {
+				const numValue = parseFloat(forecastValue);
+				if (!isNaN(numValue)) {
+					// Check if teammate has any OPEX expense types
+					const hasOpex = teammate.expenseTypes && teammate.expenseTypes.length > 0 
+						? teammate.expenseTypes.some(et => isOpex(et))
+						: true; // Default to OPEX if no expense types specified
+					
+					if (hasOpex) {
+						const baseRate = teammate.baseRate || 0;
+						total += baseRate * numValue * 173.33;
+					}
+				}
+			}
+		});
+		return Math.round(total);
+	}
+
+	function getCapexTotalNumeric(month) {
+		if (!teammates || teammates.length === 0) {
+			return 0;
+		}
+		let total = 0;
+		teammates.forEach(teammate => {
+			if (!teammate || !teammate.id) return;
+			const forecastValue = getForecastValue(teammate.id, month);
+			if (forecastValue && forecastValue !== '') {
+				const numValue = parseFloat(forecastValue);
+				if (!isNaN(numValue)) {
+					// Check if teammate has any CAPEX expense types
+					const hasCapex = teammate.expenseTypes && teammate.expenseTypes.length > 0 
+						? teammate.expenseTypes.some(et => !isOpex(et))
+						: false; // Default to not CAPEX if no expense types specified
+					
+					if (hasCapex) {
+						const baseRate = teammate.baseRate || 0;
+						total += baseRate * numValue * 173.33;
+					}
+				}
+			}
+		});
+		return Math.round(total);
+	}
+
+	function getChartData() {
+		return months.map(month => getColumnTotalNumeric(month));
+	}
+
+	function updateChart() {
+		if (!chartCanvas || !browser) return;
+		
+		const data = getChartData();
+		
+		if (chartInstance) {
+			chartInstance.data.datasets[0].data = data;
+			chartInstance.update();
+		} else {
+			const ctx = chartCanvas.getContext('2d');
+			chartInstance = new Chart(ctx, {
+				type: 'line',
+				data: {
+					labels: months,
+					datasets: [{
+						label: 'Total Forecast',
+						data: data,
+						borderColor: 'rgb(75, 192, 192)',
+						backgroundColor: 'rgba(75, 192, 192, 0.2)',
+						fill: true,
+						tension: 0.4
+					}]
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					plugins: {
+						legend: {
+							display: true,
+							position: 'top'
+						},
+						tooltip: {
+							callbacks: {
+								label: function(context) {
+									return '$' + context.parsed.y.toLocaleString('en-US');
+								}
+							}
+						}
+					},
+					scales: {
+						y: {
+							beginAtZero: true,
+							ticks: {
+								callback: function(value) {
+									return '$' + value.toLocaleString('en-US');
+								}
+							}
+						}
+					}
+				}
+			});
+		}
+	}
+
+	function updateOpexCapexChart() {
+		if (!opexCapexChartCanvas || !browser) return;
+		
+		const opexData = months.map(month => getOpexTotalNumeric(month));
+		const capexData = months.map(month => getCapexTotalNumeric(month));
+		
+		if (opexCapexChartInstance) {
+			opexCapexChartInstance.data.datasets[0].data = opexData;
+			opexCapexChartInstance.data.datasets[1].data = capexData;
+			opexCapexChartInstance.update();
+		} else {
+			const ctx = opexCapexChartCanvas.getContext('2d');
+			opexCapexChartInstance = new Chart(ctx, {
+				type: 'line',
+				data: {
+					labels: months,
+					datasets: [
+						{
+							label: 'OPEX',
+							data: opexData,
+							borderColor: 'rgb(54, 162, 235)',
+							backgroundColor: 'rgba(54, 162, 235, 0.2)',
+							fill: true,
+							tension: 0.4
+						},
+						{
+							label: 'CAPEX',
+							data: capexData,
+							borderColor: 'rgb(255, 99, 132)',
+							backgroundColor: 'rgba(255, 99, 132, 0.2)',
+							fill: true,
+							tension: 0.4
+						}
+					]
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					plugins: {
+						legend: {
+							display: true,
+							position: 'top'
+						},
+						tooltip: {
+							callbacks: {
+								label: function(context) {
+									return context.dataset.label + ': $' + context.parsed.y.toLocaleString('en-US');
+								}
+							}
+						}
+					},
+					scales: {
+						y: {
+							beginAtZero: true,
+							ticks: {
+								callback: function(value) {
+									return '$' + value.toLocaleString('en-US');
+								}
+							}
+						}
+					}
+				}
+			});
+		}
+	}
+
 	async function setForecastValue(teammateId, month, value) {
 		const key = `${teammateId}_${selectedYear}`;
 		if (!forecastData[key]) {
@@ -661,6 +920,44 @@
 					{:else if teammates.length === 0}
 						<p class="text-muted">No teammates found. Add teammates in the admin panel.</p>
 					{:else}
+						<!-- Chart Visibility Toggle -->
+						<div class="mb-3 d-flex justify-content-end">
+							<div class="btn-group" role="group" aria-label="Chart visibility toggle">
+								<button
+									type="button"
+									class="btn btn-sm {visibleChart === 'total' ? 'btn-primary' : 'btn-outline-primary'}"
+									onclick={() => visibleChart = 'total'}
+									aria-pressed={visibleChart === 'total'}
+								>
+									<i class="bi bi-graph-up-arrow me-1"></i>
+									Total Forecast
+								</button>
+								<button
+									type="button"
+									class="btn btn-sm {visibleChart === 'opexcapex' ? 'btn-primary' : 'btn-outline-primary'}"
+									onclick={() => visibleChart = 'opexcapex'}
+									aria-pressed={visibleChart === 'opexcapex'}
+								>
+									<i class="bi bi-graph-up me-1"></i>
+									OPEX/CAPEX
+								</button>
+							</div>
+						</div>
+
+						<!-- Total Forecast Area Chart -->
+						{#if visibleChart === 'total'}
+							<div class="mb-4" style="height: 300px;">
+								<canvas bind:this={chartCanvas}></canvas>
+							</div>
+						{/if}
+
+						<!-- OPEX/CAPEX Area Chart -->
+						{#if visibleChart === 'opexcapex'}
+							<div class="mb-4" style="height: 300px;">
+								<canvas bind:this={opexCapexChartCanvas}></canvas>
+							</div>
+						{/if}
+						
 						<div class="table-responsive">
 							<table class="table table-sm table-hover table-bordered forecast-table small text-muted">
 								<thead>
@@ -692,7 +989,7 @@
 											</div>
 										`}
 										{@const isExpanded = expandedRows.has(teammate.id)}
-										{@const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']}
+										{@const monthsArray = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']}
 										<tr>
 											<td class="text-nowrap">
 												<button
@@ -714,7 +1011,7 @@
 													aria-label="View grouping values"
 												></i>
 											</td>
-											{#each months as month}
+											{#each monthsArray as month}
 												{@const cellValue = calculateCellValue(teammate, month)}
 												<td class="text-nowrap text-end">
 													{cellValue ? `$${cellValue}` : ''}
@@ -724,7 +1021,7 @@
 										{#if isExpanded}
 											<tr class="table-light">
 												<td class="text-nowrap small text-muted">Forecast</td>
-												{#each months as month}
+												{#each monthsArray as month}
 													<td class="text-nowrap text-end">
 														<input
 															type="number"
