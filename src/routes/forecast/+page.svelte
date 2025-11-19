@@ -141,12 +141,20 @@
 	onMount(() => {
 		loadGroupings();
 		loadTeammates();
+		loadForecastData();
 		
 		// Initialize Bootstrap tooltips after DOM is ready
 		if (browser) {
 			setTimeout(() => {
 				initTooltips();
 			}, 200);
+		}
+	});
+
+	// Reload forecast data when year changes
+	$effect(() => {
+		if (browser && selectedYear) {
+			loadForecastData();
 		}
 	});
 
@@ -264,6 +272,10 @@
 	let isLoadingTeammates = $state(false);
 	let isEditingTeammate = $state(false);
 	let editingTeammateId = $state(null);
+	
+	// Expanded rows for forecast data entry
+	let expandedRows = $state(new Set());
+	let forecastData = $state({}); // Structure: { teammateId_year: { month: value } }
 	let teammateName = $state('');
 	let teammateBaseRate = $state('');
 	let teammateContracts = $state([]);
@@ -391,6 +403,105 @@
 		} catch (error) {
 			console.error('Error deleting teammate:', error);
 			alert('Error deleting teammate: ' + (error.message || error));
+		}
+	}
+
+	function toggleRow(teammateId) {
+		if (expandedRows.has(teammateId)) {
+			expandedRows.delete(teammateId);
+		} else {
+			expandedRows.add(teammateId);
+		}
+		expandedRows = new Set(expandedRows); // Trigger reactivity
+	}
+
+	function getForecastValue(teammateId, month) {
+		const key = `${teammateId}_${selectedYear}`;
+		return forecastData[key]?.[month] || '';
+	}
+
+	async function setForecastValue(teammateId, month, value) {
+		const key = `${teammateId}_${selectedYear}`;
+		if (!forecastData[key]) {
+			forecastData[key] = {};
+		}
+		forecastData[key][month] = value;
+		forecastData = { ...forecastData }; // Trigger reactivity
+		
+		// Save to database
+		await saveForecastValue(teammateId, month, value);
+	}
+
+	// Load forecast data from database
+	async function loadForecastData() {
+		if (!browser) return;
+		
+		if (!client.models.Forecast) {
+			console.warn('Forecast model not found. Schema may need to be deployed.');
+			return;
+		}
+		
+		try {
+			const result = await client.models.Forecast.list();
+			// Organize data by teammateId_year -> month -> value
+			const organized = {};
+			result.data?.forEach(forecast => {
+				const key = `${forecast.teammateId}_${forecast.year}`;
+				if (!organized[key]) {
+					organized[key] = {};
+				}
+				organized[key][forecast.month] = forecast.value?.toString() || '';
+			});
+			forecastData = organized;
+		} catch (error) {
+			console.error('Error loading forecast data:', error);
+		}
+	}
+
+	// Save forecast value to database
+	async function saveForecastValue(teammateId, month, value) {
+		if (!browser) return;
+		
+		if (!client.models.Forecast) {
+			console.warn('Forecast model not available. Schema may need to be deployed.');
+			return;
+		}
+
+		try {
+			// Check if a record already exists for this teammate/year/month
+			const existing = await client.models.Forecast.list({
+				filter: {
+					teammateId: { eq: teammateId },
+					year: { eq: selectedYear },
+					month: { eq: month }
+				}
+			});
+
+			const numValue = value ? parseFloat(value) : null;
+
+			if (existing.data && existing.data.length > 0) {
+				// Update existing record
+				const record = existing.data[0];
+				if (numValue === null || isNaN(numValue)) {
+					// Delete if value is empty
+					await client.models.Forecast.delete({ id: record.id });
+				} else {
+					await client.models.Forecast.update({
+						id: record.id,
+						value: numValue
+					});
+				}
+			} else if (numValue !== null && !isNaN(numValue)) {
+				// Create new record
+				await client.models.Forecast.create({
+					teammateId: teammateId,
+					year: selectedYear,
+					month: month,
+					value: numValue
+				});
+			}
+		} catch (error) {
+			console.error('Error saving forecast value:', error);
 		}
 	}
 
@@ -545,8 +656,18 @@
 												<div><strong>Resource Type:</strong> ${teammate.resourceTypes?.join(', ') || 'None'}</div>
 											</div>
 										`}
+										{@const isExpanded = expandedRows.has(teammate.id)}
+										{@const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']}
 										<tr>
 											<td class="text-nowrap">
+												<button
+													type="button"
+													class="btn btn-sm btn-link p-0 me-1"
+													onclick={() => toggleRow(teammate.id)}
+													aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
+												>
+													<i class="bi {isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'}"></i>
+												</button>
 												<strong>{teammate.name}</strong>
 												<i 
 													class="bi bi-info-circle text-info ms-1" 
@@ -571,6 +692,23 @@
 											<td class="text-nowrap"></td>
 											<td class="text-nowrap"></td>
 										</tr>
+										{#if isExpanded}
+											<tr class="table-light">
+												<td class="text-nowrap small text-muted">Forecast</td>
+												{#each months as month}
+													<td class="text-nowrap">
+														<input
+															type="number"
+															step="0.01"
+															class="form-control form-control-sm"
+															placeholder="0"
+															value={getForecastValue(teammate.id, month)}
+															oninput={(e) => setForecastValue(teammate.id, month, e.target.value)}
+														/>
+													</td>
+												{/each}
+											</tr>
+										{/if}
 									{/each}
 								</tbody>
 							</table>

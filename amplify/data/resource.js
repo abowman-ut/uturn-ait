@@ -27,6 +27,14 @@ const schema = a.schema({
       resourceTypes: a.string().array(),
     })
     .authorization(allow => [allow.publicApiKey()]),
+  Forecast: a
+    .model({
+      teammateId: a.string(),
+      year: a.integer(),
+      month: a.string(),
+      value: a.float(),
+    })
+    .authorization(allow => [allow.publicApiKey()]),
 });
 
 export const data = defineData({
