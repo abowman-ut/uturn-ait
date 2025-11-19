@@ -14,6 +14,7 @@
 	let activeScreen = $state('groupings'); // 'groupings' or 'teammates'
 	let activeTeammateScreen = $state('add'); // 'add' or 'existing'
 	let selectedYear = $state(2025);
+	let plusValue = $state('1');
 
 	// Groupings data
 	let contracts = $state([]);
@@ -179,6 +180,7 @@
 			selectedYear;
 			forecastData;
 			teammates;
+			plusValue;
 			// Small delay to ensure canvas is rendered
 			setTimeout(() => {
 				updateChart();
@@ -189,6 +191,7 @@
 			selectedYear;
 			forecastData;
 			teammates;
+			plusValue;
 			// Small delay to ensure canvas is rendered
 			setTimeout(() => {
 				updateOpexCapexChart();
@@ -323,11 +326,11 @@
 	let forecastData = $state({}); // Structure: { teammateId_year: { month: value } }
 	let teammateName = $state('');
 	let teammateBaseRate = $state('');
-	let teammateContracts = $state([]);
-	let teammateExpenseTypes = $state([]);
-	let teammateCompanies = $state([]);
-	let teammateResourceGroups = $state([]);
-	let teammateResourceTypes = $state([]);
+	let teammateContracts = $state('');
+	let teammateExpenseTypes = $state('');
+	let teammateCompanies = $state('');
+	let teammateResourceGroups = $state('');
+	let teammateResourceTypes = $state('');
 
 	// Load teammates from database
 	async function loadTeammates() {
@@ -372,9 +375,9 @@
 		}
 
 		// Validate required associations
-		if (teammateContracts.length === 0 || teammateExpenseTypes.length === 0 || 
-		    teammateCompanies.length === 0 || teammateResourceGroups.length === 0 || 
-		    teammateResourceTypes.length === 0) {
+		if (!teammateContracts || !teammateExpenseTypes || 
+		    !teammateCompanies || !teammateResourceGroups || 
+		    !teammateResourceTypes) {
 			alert('All groupings associations are required');
 			return;
 		}
@@ -384,11 +387,11 @@
 			const data = {
 				name: teammateName.trim(),
 				baseRate: parseFloat(teammateBaseRate),
-				contracts: teammateContracts,
-				expenseTypes: teammateExpenseTypes,
-				companies: teammateCompanies,
-				resourceGroups: teammateResourceGroups,
-				resourceTypes: teammateResourceTypes,
+				contracts: [teammateContracts],
+				expenseTypes: [teammateExpenseTypes],
+				companies: [teammateCompanies],
+				resourceGroups: [teammateResourceGroups],
+				resourceTypes: [teammateResourceTypes],
 			};
 
 			if (editingTeammateId) {
@@ -415,11 +418,11 @@
 	function resetTeammateForm() {
 		teammateName = '';
 		teammateBaseRate = '';
-		teammateContracts = [];
-		teammateExpenseTypes = [];
-		teammateCompanies = [];
-		teammateResourceGroups = [];
-		teammateResourceTypes = [];
+		teammateContracts = '';
+		teammateExpenseTypes = '';
+		teammateCompanies = '';
+		teammateResourceGroups = '';
+		teammateResourceTypes = '';
 		editingTeammateId = null;
 		isEditingTeammate = false;
 	}
@@ -427,11 +430,11 @@
 	function editTeammate(teammate) {
 		teammateName = teammate.name;
 		teammateBaseRate = teammate.baseRate?.toString() || '';
-		teammateContracts = teammate.contracts || [];
-		teammateExpenseTypes = teammate.expenseTypes || [];
-		teammateCompanies = teammate.companies || [];
-		teammateResourceGroups = teammate.resourceGroups || [];
-		teammateResourceTypes = teammate.resourceTypes || [];
+		teammateContracts = teammate.contracts?.[0] || '';
+		teammateExpenseTypes = teammate.expenseTypes?.[0] || '';
+		teammateCompanies = teammate.companies?.[0] || '';
+		teammateResourceGroups = teammate.resourceGroups?.[0] || '';
+		teammateResourceTypes = teammate.resourceTypes?.[0] || '';
 		editingTeammateId = teammate.id;
 		isEditingTeammate = true;
 		activeTeammateScreen = 'add'; // Switch to add screen when editing
@@ -477,7 +480,8 @@
 			return '';
 		}
 		const baseRate = teammate.baseRate || 0;
-		const result = baseRate * numValue * 173.33;
+		const plusMultiplier = parseFloat(plusValue) || 1;
+		const result = baseRate * numValue * 173.33 * plusMultiplier;
 		return Math.round(result).toLocaleString('en-US');
 	}
 
@@ -486,6 +490,7 @@
 			return '';
 		}
 		let total = 0;
+		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month);
@@ -493,11 +498,23 @@
 				const numValue = parseFloat(forecastValue);
 				if (!isNaN(numValue)) {
 					const baseRate = teammate.baseRate || 0;
-					total += baseRate * numValue * 173.33;
+					total += baseRate * numValue * 173.33 * plusMultiplier;
 				}
 			}
 		});
 		return Math.round(total).toLocaleString('en-US');
+	}
+
+	function calculateGrandTotal() {
+		if (!teammates || teammates.length === 0) {
+			return 0;
+		}
+		let grandTotal = 0;
+		months.forEach(month => {
+			const monthTotal = getColumnTotalNumeric(month);
+			grandTotal += monthTotal;
+		});
+		return grandTotal;
 	}
 
 	function getColumnTotalNumeric(month) {
@@ -505,6 +522,7 @@
 			return 0;
 		}
 		let total = 0;
+		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month);
@@ -512,7 +530,7 @@
 				const numValue = parseFloat(forecastValue);
 				if (!isNaN(numValue)) {
 					const baseRate = teammate.baseRate || 0;
-					total += baseRate * numValue * 173.33;
+					total += baseRate * numValue * 173.33 * plusMultiplier;
 				}
 			}
 		});
@@ -527,7 +545,7 @@
 	const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 	// Chart visibility - only one chart visible at a time
-	let visibleChart = $state('total'); // 'total' or 'opexcapex'
+	let visibleChart = $state('dataonly'); // 'dataonly', 'total', or 'opexcapex'
 
 	// Categorize expense types as OPEX or CAPEX
 	// This can be customized based on your expense type naming
@@ -543,6 +561,7 @@
 			return 0;
 		}
 		let total = 0;
+		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month);
@@ -556,7 +575,7 @@
 					
 					if (hasOpex) {
 						const baseRate = teammate.baseRate || 0;
-						total += baseRate * numValue * 173.33;
+						total += baseRate * numValue * 173.33 * plusMultiplier;
 					}
 				}
 			}
@@ -569,6 +588,7 @@
 			return 0;
 		}
 		let total = 0;
+		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month);
@@ -582,7 +602,7 @@
 					
 					if (hasCapex) {
 						const baseRate = teammate.baseRate || 0;
-						total += baseRate * numValue * 173.33;
+						total += baseRate * numValue * 173.33 * plusMultiplier;
 					}
 				}
 			}
@@ -799,38 +819,22 @@
 		}
 	}
 
-	function toggleAssociation(arrayName, value) {
-		let currentArray;
+	function setAssociation(arrayName, value) {
 		switch(arrayName) {
 			case 'contracts':
-				currentArray = teammateContracts;
-				teammateContracts = currentArray.includes(value) 
-					? currentArray.filter(item => item !== value)
-					: [...currentArray, value];
+				teammateContracts = teammateContracts === value ? '' : value;
 				break;
 			case 'expenseTypes':
-				currentArray = teammateExpenseTypes;
-				teammateExpenseTypes = currentArray.includes(value)
-					? currentArray.filter(item => item !== value)
-					: [...currentArray, value];
+				teammateExpenseTypes = teammateExpenseTypes === value ? '' : value;
 				break;
 			case 'companies':
-				currentArray = teammateCompanies;
-				teammateCompanies = currentArray.includes(value)
-					? currentArray.filter(item => item !== value)
-					: [...currentArray, value];
+				teammateCompanies = teammateCompanies === value ? '' : value;
 				break;
 			case 'resourceGroups':
-				currentArray = teammateResourceGroups;
-				teammateResourceGroups = currentArray.includes(value)
-					? currentArray.filter(item => item !== value)
-					: [...currentArray, value];
+				teammateResourceGroups = teammateResourceGroups === value ? '' : value;
 				break;
 			case 'resourceTypes':
-				currentArray = teammateResourceTypes;
-				teammateResourceTypes = currentArray.includes(value)
-					? currentArray.filter(item => item !== value)
-					: [...currentArray, value];
+				teammateResourceTypes = teammateResourceTypes === value ? '' : value;
 				break;
 		}
 	}
@@ -908,6 +912,15 @@
 								<option value={2029}>2029</option>
 								<option value={2030}>2030</option>
 							</select>
+							<label for="plus-input" class="form-label mb-0 small">+</label>
+							<input
+								id="plus-input"
+								type="text"
+								class="form-control form-control-sm"
+								style="width: 60px;"
+								placeholder="0"
+								bind:value={plusValue}
+							/>
 						</div>
 					</div>
 					
@@ -921,11 +934,20 @@
 						<p class="text-muted">No teammates found. Add teammates in the admin panel.</p>
 					{:else}
 						<!-- Chart Visibility Toggle -->
-						<div class="mb-3 d-flex justify-content-end">
+						<div class="mb-3 d-flex justify-content-between align-items-center">
 							<div class="btn-group" role="group" aria-label="Chart visibility toggle">
 								<button
 									type="button"
-									class="btn btn-sm {visibleChart === 'total' ? 'btn-primary' : 'btn-outline-primary'}"
+									class="btn btn-sm {visibleChart === 'dataonly' ? 'btn-secondary' : 'btn-outline-secondary'}"
+									onclick={() => visibleChart = 'dataonly'}
+									aria-pressed={visibleChart === 'dataonly'}
+								>
+									<i class="bi bi-table me-1"></i>
+									Data Only
+								</button>
+								<button
+									type="button"
+									class="btn btn-sm {visibleChart === 'total' ? 'btn-secondary' : 'btn-outline-secondary'}"
 									onclick={() => visibleChart = 'total'}
 									aria-pressed={visibleChart === 'total'}
 								>
@@ -934,13 +956,17 @@
 								</button>
 								<button
 									type="button"
-									class="btn btn-sm {visibleChart === 'opexcapex' ? 'btn-primary' : 'btn-outline-primary'}"
+									class="btn btn-sm {visibleChart === 'opexcapex' ? 'btn-secondary' : 'btn-outline-secondary'}"
 									onclick={() => visibleChart = 'opexcapex'}
 									aria-pressed={visibleChart === 'opexcapex'}
 								>
 									<i class="bi bi-graph-up me-1"></i>
 									OPEX/CAPEX
 								</button>
+							</div>
+							<div class="text-end">
+								<strong class="small text-muted">Grand Total: </strong>
+								<span class="fw-bold">${calculateGrandTotal().toLocaleString('en-US')}</span>
 							</div>
 						</div>
 
@@ -1001,15 +1027,17 @@
 													<i class="bi {isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'}"></i>
 												</button>
 												<strong>{teammate.name}</strong>
-												<i 
-													class="bi bi-info-circle text-info ms-1" 
-													style="cursor: help; font-size: 0.875rem;"
-													data-bs-toggle="tooltip"
-													data-bs-html="true"
-													data-bs-placement="top"
-													title={tooltipContent}
-													aria-label="View grouping values"
-												></i>
+												<span class="float-end">
+													<i 
+														class="bi bi-info-circle text-info ms-1" 
+														style="cursor: help; font-size: 0.875rem;"
+														data-bs-toggle="tooltip"
+														data-bs-html="true"
+														data-bs-placement="top"
+														title={tooltipContent}
+														aria-label="View grouping values"
+													></i>
+												</span>
 											</td>
 											{#each monthsArray as month}
 												{@const cellValue = calculateCellValue(teammate, month)}
@@ -1020,12 +1048,11 @@
 										</tr>
 										{#if isExpanded}
 											<tr class="table-light">
-												<td class="text-nowrap small text-muted">Forecast</td>
+												<td class="text-nowrap small text-muted"></td>
 												{#each monthsArray as month}
 													<td class="text-nowrap text-end">
 														<input
-															type="number"
-															step="0.01"
+															type="text"
 															class="form-control form-control-sm text-end"
 															placeholder="0"
 															value={getForecastValue(teammate.id, month)}
@@ -1050,7 +1077,7 @@
 									</tr>
 								</tbody>
 							</table>
-						</div>
+					</div>
 					{/if}
 				</div>
 			</div>
@@ -1110,7 +1137,7 @@
 				<div class="btn-group w-100" role="group">
 					<button
 						type="button"
-						class="btn btn-sm flex-fill {activeScreen === 'groupings' ? 'btn-primary' : 'btn-outline-primary'}"
+						class="btn btn-sm flex-fill {activeScreen === 'groupings' ? 'btn-secondary' : 'btn-outline-secondary'}"
 						onclick={() => setActiveScreen('groupings')}
 					>
 						<i class="bi bi-collection me-1"></i>
@@ -1118,7 +1145,7 @@
 					</button>
 					<button
 						type="button"
-						class="btn btn-sm flex-fill {activeScreen === 'teammates' ? 'btn-primary' : 'btn-outline-primary'}"
+						class="btn btn-sm flex-fill {activeScreen === 'teammates' ? 'btn-secondary' : 'btn-outline-secondary'}"
 						onclick={() => setActiveScreen('teammates')}
 					>
 						<i class="bi bi-people me-1"></i>
@@ -1155,7 +1182,7 @@
 							{#if contracts.length > 0}
 								<div class="d-flex flex-wrap gap-1">
 									{#each contracts as contract, index}
-										<span class="badge bg-primary d-flex align-items-center gap-1">
+										<span class="badge bg-secondary d-flex align-items-center gap-1">
 											{contract}
 											<button
 												type="button"
@@ -1189,7 +1216,7 @@
 							{#if expenseTypes.length > 0}
 								<div class="d-flex flex-wrap gap-1">
 									{#each expenseTypes as expenseType, index}
-										<span class="badge bg-primary d-flex align-items-center gap-1">
+										<span class="badge bg-secondary d-flex align-items-center gap-1">
 											{expenseType}
 											<button
 												type="button"
@@ -1223,7 +1250,7 @@
 							{#if companies.length > 0}
 								<div class="d-flex flex-wrap gap-1">
 									{#each companies as company, index}
-										<span class="badge bg-primary d-flex align-items-center gap-1">
+										<span class="badge bg-secondary d-flex align-items-center gap-1">
 											{company}
 											<button
 												type="button"
@@ -1257,7 +1284,7 @@
 							{#if resourceGroups.length > 0}
 								<div class="d-flex flex-wrap gap-1">
 									{#each resourceGroups as resourceGroup, index}
-										<span class="badge bg-primary d-flex align-items-center gap-1">
+										<span class="badge bg-secondary d-flex align-items-center gap-1">
 											{resourceGroup}
 											<button
 												type="button"
@@ -1291,7 +1318,7 @@
 							{#if resourceTypes.length > 0}
 								<div class="d-flex flex-wrap gap-1">
 									{#each resourceTypes as resourceType, index}
-										<span class="badge bg-primary d-flex align-items-center gap-1">
+										<span class="badge bg-secondary d-flex align-items-center gap-1">
 											{resourceType}
 											<button
 												type="button"
@@ -1318,7 +1345,7 @@
 							<div class="btn-group w-100" role="group">
 								<button
 									type="button"
-									class="btn btn-sm flex-fill {activeTeammateScreen === 'add' ? 'btn-primary' : 'btn-outline-primary'}"
+									class="btn btn-sm flex-fill {activeTeammateScreen === 'add' ? 'btn-secondary' : 'btn-outline-secondary'}"
 									onclick={() => { activeTeammateScreen = 'add'; resetTeammateForm(); }}
 								>
 									<i class="bi bi-person-plus me-1"></i>
@@ -1326,7 +1353,7 @@
 								</button>
 								<button
 									type="button"
-									class="btn btn-sm flex-fill {activeTeammateScreen === 'existing' ? 'btn-primary' : 'btn-outline-primary'}"
+									class="btn btn-sm flex-fill {activeTeammateScreen === 'existing' ? 'btn-secondary' : 'btn-outline-secondary'}"
 									onclick={() => activeTeammateScreen = 'existing'}
 								>
 									<i class="bi bi-list-ul me-1"></i>
@@ -1371,8 +1398,9 @@
 										{#each contracts as contract}
 											<button
 												type="button"
-												class="btn btn-sm {teammateContracts.includes(contract) ? 'btn-primary' : 'btn-outline-primary'}"
-												onclick={() => toggleAssociation('contracts', contract)}
+												class="btn btn-xs {teammateContracts === contract ? 'btn-secondary' : 'btn-outline-secondary'}"
+												style="font-size: 0.7rem; padding: 0.15rem 0.4rem;"
+												onclick={() => setAssociation('contracts', contract)}
 											>
 												{contract}
 											</button>
@@ -1389,8 +1417,9 @@
 										{#each expenseTypes as expenseType}
 											<button
 												type="button"
-												class="btn btn-sm {teammateExpenseTypes.includes(expenseType) ? 'btn-primary' : 'btn-outline-primary'}"
-												onclick={() => toggleAssociation('expenseTypes', expenseType)}
+												class="btn btn-xs {teammateExpenseTypes === expenseType ? 'btn-secondary' : 'btn-outline-secondary'}"
+												style="font-size: 0.7rem; padding: 0.15rem 0.4rem;"
+												onclick={() => setAssociation('expenseTypes', expenseType)}
 											>
 												{expenseType}
 											</button>
@@ -1407,8 +1436,9 @@
 										{#each companies as company}
 											<button
 												type="button"
-												class="btn btn-sm {teammateCompanies.includes(company) ? 'btn-primary' : 'btn-outline-primary'}"
-												onclick={() => toggleAssociation('companies', company)}
+												class="btn btn-xs {teammateCompanies === company ? 'btn-secondary' : 'btn-outline-secondary'}"
+												style="font-size: 0.7rem; padding: 0.15rem 0.4rem;"
+												onclick={() => setAssociation('companies', company)}
 											>
 												{company}
 											</button>
@@ -1425,8 +1455,9 @@
 										{#each resourceGroups as resourceGroup}
 											<button
 												type="button"
-												class="btn btn-sm {teammateResourceGroups.includes(resourceGroup) ? 'btn-primary' : 'btn-outline-primary'}"
-												onclick={() => toggleAssociation('resourceGroups', resourceGroup)}
+												class="btn btn-xs {teammateResourceGroups === resourceGroup ? 'btn-secondary' : 'btn-outline-secondary'}"
+												style="font-size: 0.7rem; padding: 0.15rem 0.4rem;"
+												onclick={() => setAssociation('resourceGroups', resourceGroup)}
 											>
 												{resourceGroup}
 											</button>
@@ -1443,8 +1474,9 @@
 										{#each resourceTypes as resourceType}
 											<button
 												type="button"
-												class="btn btn-sm {teammateResourceTypes.includes(resourceType) ? 'btn-primary' : 'btn-outline-primary'}"
-												onclick={() => toggleAssociation('resourceTypes', resourceType)}
+												class="btn btn-xs {teammateResourceTypes === resourceType ? 'btn-secondary' : 'btn-outline-secondary'}"
+												style="font-size: 0.7rem; padding: 0.15rem 0.4rem;"
+												onclick={() => setAssociation('resourceTypes', resourceType)}
 											>
 												{resourceType}
 											</button>
@@ -1455,7 +1487,7 @@
 									</div>
 								</div>
 
-								<div class="d-flex gap-2">
+								<div class="d-flex gap-2 justify-content-end">
 									<button
 										type="button"
 										class="btn btn-primary btn-sm"
