@@ -9,6 +9,7 @@
 	
 	let showAdminWindow = $state(false);
 	let activeScreen = $state('groupings'); // 'groupings' or 'teammates'
+	let activeTeammateScreen = $state('add'); // 'add' or 'existing'
 
 	// Groupings data
 	let contracts = $state([]);
@@ -219,6 +220,184 @@
 			isSaving = false;
 		}
 	}
+
+	// Teammates data
+	let teammates = $state([]);
+	let isEditingTeammate = $state(false);
+	let editingTeammateId = $state(null);
+	let teammateName = $state('');
+	let teammateBaseRate = $state('');
+	let teammateContracts = $state([]);
+	let teammateExpenseTypes = $state([]);
+	let teammateCompanies = $state([]);
+	let teammateResourceGroups = $state([]);
+	let teammateResourceTypes = $state([]);
+
+	// Load teammates from database
+	async function loadTeammates() {
+		if (!browser) return;
+		
+		if (!client.models.Teammate) {
+			console.warn('Teammate model not found. Schema may need to be deployed.');
+			return;
+		}
+		
+		try {
+			const result = await client.models.Teammate.list();
+			teammates = result.data || [];
+		} catch (error) {
+			console.error('Error loading teammates:', error);
+		}
+	}
+
+	// Save teammate to database
+	async function saveTeammate() {
+		if (!browser) return;
+		
+		if (!client.models.Teammate) {
+			alert('Teammate model not available. Please run "npx ampx sandbox" to deploy schema changes.');
+			return;
+		}
+
+		// Validate required fields
+		if (!teammateName.trim()) {
+			alert('Name is required');
+			return;
+		}
+
+		if (!teammateBaseRate || isNaN(parseFloat(teammateBaseRate))) {
+			alert('Base rate must be a valid number');
+			return;
+		}
+
+		// Validate required associations
+		if (teammateContracts.length === 0 || teammateExpenseTypes.length === 0 || 
+		    teammateCompanies.length === 0 || teammateResourceGroups.length === 0 || 
+		    teammateResourceTypes.length === 0) {
+			alert('All groupings associations are required');
+			return;
+		}
+
+		isSaving = true;
+		try {
+			const data = {
+				name: teammateName.trim(),
+				baseRate: parseFloat(teammateBaseRate),
+				contracts: teammateContracts,
+				expenseTypes: teammateExpenseTypes,
+				companies: teammateCompanies,
+				resourceGroups: teammateResourceGroups,
+				resourceTypes: teammateResourceTypes,
+			};
+
+			if (editingTeammateId) {
+				await client.models.Teammate.update({
+					id: editingTeammateId,
+					...data,
+				});
+			} else {
+				await client.models.Teammate.create(data);
+			}
+
+			// Reset form and switch to existing screen
+			resetTeammateForm();
+			await loadTeammates();
+			activeTeammateScreen = 'existing';
+		} catch (error) {
+			console.error('Error saving teammate:', error);
+			alert('Error saving teammate: ' + (error.message || error));
+		} finally {
+			isSaving = false;
+		}
+	}
+
+	function resetTeammateForm() {
+		teammateName = '';
+		teammateBaseRate = '';
+		teammateContracts = [];
+		teammateExpenseTypes = [];
+		teammateCompanies = [];
+		teammateResourceGroups = [];
+		teammateResourceTypes = [];
+		editingTeammateId = null;
+		isEditingTeammate = false;
+	}
+
+	function editTeammate(teammate) {
+		teammateName = teammate.name;
+		teammateBaseRate = teammate.baseRate?.toString() || '';
+		teammateContracts = teammate.contracts || [];
+		teammateExpenseTypes = teammate.expenseTypes || [];
+		teammateCompanies = teammate.companies || [];
+		teammateResourceGroups = teammate.resourceGroups || [];
+		teammateResourceTypes = teammate.resourceTypes || [];
+		editingTeammateId = teammate.id;
+		isEditingTeammate = true;
+		activeTeammateScreen = 'add'; // Switch to add screen when editing
+	}
+
+	async function deleteTeammate(id) {
+		if (!confirm('Are you sure you want to delete this teammate?')) {
+			return;
+		}
+
+		if (!client.models.Teammate) return;
+
+		try {
+			await client.models.Teammate.delete({ id });
+			await loadTeammates();
+		} catch (error) {
+			console.error('Error deleting teammate:', error);
+			alert('Error deleting teammate: ' + (error.message || error));
+		}
+	}
+
+	function toggleAssociation(arrayName, value) {
+		let currentArray;
+		switch(arrayName) {
+			case 'contracts':
+				currentArray = teammateContracts;
+				teammateContracts = currentArray.includes(value) 
+					? currentArray.filter(item => item !== value)
+					: [...currentArray, value];
+				break;
+			case 'expenseTypes':
+				currentArray = teammateExpenseTypes;
+				teammateExpenseTypes = currentArray.includes(value)
+					? currentArray.filter(item => item !== value)
+					: [...currentArray, value];
+				break;
+			case 'companies':
+				currentArray = teammateCompanies;
+				teammateCompanies = currentArray.includes(value)
+					? currentArray.filter(item => item !== value)
+					: [...currentArray, value];
+				break;
+			case 'resourceGroups':
+				currentArray = teammateResourceGroups;
+				teammateResourceGroups = currentArray.includes(value)
+					? currentArray.filter(item => item !== value)
+					: [...currentArray, value];
+				break;
+			case 'resourceTypes':
+				currentArray = teammateResourceTypes;
+				teammateResourceTypes = currentArray.includes(value)
+					? currentArray.filter(item => item !== value)
+					: [...currentArray, value];
+				break;
+		}
+	}
+
+	// Load teammates when switching to teammates screen
+	$effect(() => {
+		if (activeScreen === 'teammates' && browser) {
+			loadTeammates();
+			// Reset to add screen when first opening teammates
+			if (!isEditingTeammate) {
+				activeTeammateScreen = 'add';
+			}
+		}
+	});
 </script>
 
 <style>
@@ -518,8 +697,218 @@
 							<i class="bi bi-people me-2"></i>
 							Teammates
 						</h6>
-						<p class="text-muted">Manage teammates here.</p>
-						<!-- Teammates content will go here -->
+
+						<!-- Sub-navigation Tabs -->
+						<div class="mb-3">
+							<div class="btn-group w-100" role="group">
+								<button
+									type="button"
+									class="btn btn-sm flex-fill {activeTeammateScreen === 'add' ? 'btn-primary' : 'btn-outline-primary'}"
+									onclick={() => { activeTeammateScreen = 'add'; resetTeammateForm(); }}
+								>
+									<i class="bi bi-person-plus me-1"></i>
+									Add Teammate
+								</button>
+								<button
+									type="button"
+									class="btn btn-sm flex-fill {activeTeammateScreen === 'existing' ? 'btn-primary' : 'btn-outline-primary'}"
+									onclick={() => activeTeammateScreen = 'existing'}
+								>
+									<i class="bi bi-list-ul me-1"></i>
+									Existing Teammates
+								</button>
+							</div>
+						</div>
+
+						<!-- Add/Edit Teammate Form -->
+						{#if activeTeammateScreen === 'add'}
+						<div class="card mb-3">
+							<div class="card-body">
+								<h6 class="card-title">{isEditingTeammate ? 'Edit' : 'Add'} Teammate</h6>
+								
+								<div class="mb-3">
+									<label for="teammate-name" class="form-label small fw-bold">Name *</label>
+									<input
+										id="teammate-name"
+										type="text"
+										class="form-control form-control-sm"
+										placeholder="Enter teammate name"
+										bind:value={teammateName}
+									/>
+								</div>
+
+								<div class="mb-3">
+									<label for="teammate-base-rate" class="form-label small fw-bold">Base Rate *</label>
+									<input
+										id="teammate-base-rate"
+										type="number"
+										step="0.01"
+										class="form-control form-control-sm"
+										placeholder="Enter base rate"
+										bind:value={teammateBaseRate}
+									/>
+								</div>
+
+								<!-- Groupings Associations -->
+								<div class="mb-3">
+									<label class="form-label small fw-bold">Contract *</label>
+									<div class="d-flex flex-wrap gap-1">
+										{#each contracts as contract}
+											<button
+												type="button"
+												class="btn btn-sm {teammateContracts.includes(contract) ? 'btn-primary' : 'btn-outline-primary'}"
+												onclick={() => toggleAssociation('contracts', contract)}
+											>
+												{contract}
+											</button>
+										{/each}
+										{#if contracts.length === 0}
+											<small class="text-muted">No contracts available. Add them in Groupings.</small>
+										{/if}
+									</div>
+								</div>
+
+								<div class="mb-3">
+									<label class="form-label small fw-bold">Expense Type *</label>
+									<div class="d-flex flex-wrap gap-1">
+										{#each expenseTypes as expenseType}
+											<button
+												type="button"
+												class="btn btn-sm {teammateExpenseTypes.includes(expenseType) ? 'btn-primary' : 'btn-outline-primary'}"
+												onclick={() => toggleAssociation('expenseTypes', expenseType)}
+											>
+												{expenseType}
+											</button>
+										{/each}
+										{#if expenseTypes.length === 0}
+											<small class="text-muted">No expense types available. Add them in Groupings.</small>
+										{/if}
+									</div>
+								</div>
+
+								<div class="mb-3">
+									<label class="form-label small fw-bold">Company *</label>
+									<div class="d-flex flex-wrap gap-1">
+										{#each companies as company}
+											<button
+												type="button"
+												class="btn btn-sm {teammateCompanies.includes(company) ? 'btn-primary' : 'btn-outline-primary'}"
+												onclick={() => toggleAssociation('companies', company)}
+											>
+												{company}
+											</button>
+										{/each}
+										{#if companies.length === 0}
+											<small class="text-muted">No companies available. Add them in Groupings.</small>
+										{/if}
+									</div>
+								</div>
+
+								<div class="mb-3">
+									<label class="form-label small fw-bold">Resource Group *</label>
+									<div class="d-flex flex-wrap gap-1">
+										{#each resourceGroups as resourceGroup}
+											<button
+												type="button"
+												class="btn btn-sm {teammateResourceGroups.includes(resourceGroup) ? 'btn-primary' : 'btn-outline-primary'}"
+												onclick={() => toggleAssociation('resourceGroups', resourceGroup)}
+											>
+												{resourceGroup}
+											</button>
+										{/each}
+										{#if resourceGroups.length === 0}
+											<small class="text-muted">No resource groups available. Add them in Groupings.</small>
+										{/if}
+									</div>
+								</div>
+
+								<div class="mb-3">
+									<label class="form-label small fw-bold">Resource Type *</label>
+									<div class="d-flex flex-wrap gap-1">
+										{#each resourceTypes as resourceType}
+											<button
+												type="button"
+												class="btn btn-sm {teammateResourceTypes.includes(resourceType) ? 'btn-primary' : 'btn-outline-primary'}"
+												onclick={() => toggleAssociation('resourceTypes', resourceType)}
+											>
+												{resourceType}
+											</button>
+										{/each}
+										{#if resourceTypes.length === 0}
+											<small class="text-muted">No resource types available. Add them in Groupings.</small>
+										{/if}
+									</div>
+								</div>
+
+								<div class="d-flex gap-2">
+									<button
+										type="button"
+										class="btn btn-primary btn-sm"
+										onclick={saveTeammate}
+										disabled={isSaving}
+									>
+										{isEditingTeammate ? 'Update' : 'Add'} Teammate
+									</button>
+									{#if isEditingTeammate}
+										<button
+											type="button"
+											class="btn btn-secondary btn-sm"
+											onclick={resetTeammateForm}
+										>
+											Cancel
+										</button>
+									{/if}
+								</div>
+							</div>
+						</div>
+						{/if}
+
+						<!-- Teammates List -->
+						{#if activeTeammateScreen === 'existing'}
+						<div>
+							{#if teammates.length === 0}
+								<p class="text-muted small">No teammates added yet.</p>
+							{:else}
+								<div class="list-group">
+									{#each teammates as teammate}
+										<div class="list-group-item">
+											<div class="d-flex justify-content-between align-items-start">
+												<div class="flex-grow-1">
+													<h6 class="mb-1">{teammate.name}</h6>
+													<p class="mb-1 small text-muted">Base Rate: ${teammate.baseRate?.toFixed(2) || '0.00'}</p>
+													<div class="small">
+														<div><strong>Contract:</strong> {teammate.contracts?.join(', ') || 'None'}</div>
+														<div><strong>Expense Type:</strong> {teammate.expenseTypes?.join(', ') || 'None'}</div>
+														<div><strong>Company:</strong> {teammate.companies?.join(', ') || 'None'}</div>
+														<div><strong>Resource Group:</strong> {teammate.resourceGroups?.join(', ') || 'None'}</div>
+														<div><strong>Resource Type:</strong> {teammate.resourceTypes?.join(', ') || 'None'}</div>
+													</div>
+												</div>
+												<div class="d-flex gap-1">
+													<button
+														type="button"
+														class="btn btn-sm btn-outline-primary"
+														onclick={() => editTeammate(teammate)}
+														aria-label="Edit teammate"
+													>
+														<i class="bi bi-pencil"></i>
+													</button>
+													<button
+														type="button"
+														class="btn btn-sm btn-outline-danger"
+														onclick={() => deleteTeammate(teammate.id)}
+														aria-label="Delete teammate"
+													>
+														<i class="bi bi-trash"></i>
+													</button>
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+						{/if}
 					</div>
 				{/if}
 			</div>

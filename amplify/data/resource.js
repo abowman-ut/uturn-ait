@@ -16,6 +16,17 @@ const schema = a.schema({
       resourceTypes: a.string().array(),
     })
     .authorization(allow => [allow.publicApiKey()]),
+  Teammate: a
+    .model({
+      name: a.string(),
+      baseRate: a.float(),
+      contracts: a.string().array(),
+      expenseTypes: a.string().array(),
+      companies: a.string().array(),
+      resourceGroups: a.string().array(),
+      resourceTypes: a.string().array(),
+    })
+    .authorization(allow => [allow.publicApiKey()]),
 });
 
 export const data = defineData({
