@@ -7,6 +7,15 @@ const schema = a.schema({
       isDone: a.boolean(),
     })
     .authorization(allow => [allow.publicApiKey()]),
+  Groupings: a
+    .model({
+      contracts: a.string().array(),
+      expenseTypes: a.string().array(),
+      companies: a.string().array(),
+      resourceGroups: a.string().array(),
+      resourceTypes: a.string().array(),
+    })
+    .authorization(allow => [allow.publicApiKey()]),
 });
 
 export const data = defineData({

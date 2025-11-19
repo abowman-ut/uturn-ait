@@ -1,8 +1,8 @@
 {
   "data": {
-    "url": "https://qx4hk3c25rgszjjybrvqiqty3q.appsync-api.us-east-2.amazonaws.com/graphql",
+    "url": "https://rofpwzbgabgldhbyogmak7kipe.appsync-api.us-east-2.amazonaws.com/graphql",
     "aws_region": "us-east-2",
-    "api_key": "da2-4b7tj4lhijfz5mt7xi4c37a76e",
+    "api_key": "da2-tlesqr3eovhrjmau5hf6nl3tua",
     "default_authorization_type": "API_KEY",
     "authorization_types": [
       "AWS_IAM"
@@ -53,6 +53,104 @@
           },
           "syncable": true,
           "pluralName": "Todos",
+          "attributes": [
+            {
+              "type": "model",
+              "properties": {}
+            },
+            {
+              "type": "auth",
+              "properties": {
+                "rules": [
+                  {
+                    "allow": "public",
+                    "provider": "apiKey",
+                    "operations": [
+                      "create",
+                      "update",
+                      "delete",
+                      "read"
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "primaryKeyInfo": {
+            "isCustomPrimaryKey": false,
+            "primaryKeyFieldName": "id",
+            "sortKeyFieldNames": []
+          }
+        },
+        "Groupings": {
+          "name": "Groupings",
+          "fields": {
+            "id": {
+              "name": "id",
+              "isArray": false,
+              "type": "ID",
+              "isRequired": true,
+              "attributes": []
+            },
+            "contracts": {
+              "name": "contracts",
+              "isArray": true,
+              "type": "String",
+              "isRequired": false,
+              "attributes": [],
+              "isArrayNullable": true
+            },
+            "expenseTypes": {
+              "name": "expenseTypes",
+              "isArray": true,
+              "type": "String",
+              "isRequired": false,
+              "attributes": [],
+              "isArrayNullable": true
+            },
+            "companies": {
+              "name": "companies",
+              "isArray": true,
+              "type": "String",
+              "isRequired": false,
+              "attributes": [],
+              "isArrayNullable": true
+            },
+            "resourceGroups": {
+              "name": "resourceGroups",
+              "isArray": true,
+              "type": "String",
+              "isRequired": false,
+              "attributes": [],
+              "isArrayNullable": true
+            },
+            "resourceTypes": {
+              "name": "resourceTypes",
+              "isArray": true,
+              "type": "String",
+              "isRequired": false,
+              "attributes": [],
+              "isArrayNullable": true
+            },
+            "createdAt": {
+              "name": "createdAt",
+              "isArray": false,
+              "type": "AWSDateTime",
+              "isRequired": false,
+              "attributes": [],
+              "isReadOnly": true
+            },
+            "updatedAt": {
+              "name": "updatedAt",
+              "isArray": false,
+              "type": "AWSDateTime",
+              "isRequired": false,
+              "attributes": [],
+              "isReadOnly": true
+            }
+          },
+          "syncable": true,
+          "pluralName": "Groupings",
           "attributes": [
             {
               "type": "model",
