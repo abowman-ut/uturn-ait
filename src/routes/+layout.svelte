@@ -11,4 +11,26 @@
 	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
 </svelte:head>
 
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+	<div class="container">
+		<a class="navbar-brand" href="/">
+			<i class="bi bi-bullseye text-danger me-2"></i>
+			AWS Uturn AIT
+		</a>
+		<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+			<span class="navbar-toggler-icon"></span>
+		</button>
+		<div class="collapse navbar-collapse" id="navbarNav">
+			<div class="d-flex gap-2">
+				<a class="btn btn-outline-light btn-sm" href="/hours">
+					<i class="bi bi-clock me-1"></i> Hours
+				</a>
+				<a class="btn btn-outline-light btn-sm" href="/forecast">
+					<i class="bi bi-graph-up me-1"></i> Forecast
+				</a>
+			</div>
+		</div>
+	</div>
+</nav>
+
 {@render children?.()}
