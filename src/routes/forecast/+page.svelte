@@ -85,6 +85,14 @@
 				opexCapexChartCanvas = null;
 			}
 		}
+		if (currentVisibleChart !== 'contract' && contractChartInstance) {
+			contractChartInstance.destroy();
+			contractChartInstance = null;
+			// Clear canvas reference when chart is hidden (canvas removed from DOM)
+			if (contractChartCanvas) {
+				contractChartCanvas = null;
+			}
+		}
 		
 		// Lazy load total forecast chart only when visible and canvas is available
 		if (currentVisibleChart === 'total' && chartCanvas && teammates.length > 0) {
@@ -104,6 +112,17 @@
 				// Double-check canvas is still available and visible before initializing
 				if (opexCapexChartCanvas && visibleChart === 'opexcapex' && opexCapexChartCanvas.isConnected) {
 					updateOpexCapexChart();
+				}
+			});
+		}
+		
+		// Lazy load contract chart only when visible and canvas is available
+		if (currentVisibleChart === 'contract' && contractChartCanvas && teammates.length > 0) {
+			// Use requestAnimationFrame to ensure canvas is fully rendered in DOM
+			requestAnimationFrame(() => {
+				// Double-check canvas is still available and visible before initializing
+				if (contractChartCanvas && visibleChart === 'contract' && contractChartCanvas.isConnected) {
+					updateContractChart();
 				}
 			});
 		}
@@ -247,10 +266,12 @@
 	let chartInstance = null;
 	let opexCapexChartCanvas = $state(null);
 	let opexCapexChartInstance = null;
+	let contractChartCanvas = $state(null);
+	let contractChartInstance = null;
 	const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 	// Chart visibility - only one chart visible at a time
-	let visibleChart = $state('dataonly'); // 'dataonly', 'total', or 'opexcapex'
+	let visibleChart = $state('dataonly'); // 'dataonly', 'total', 'opexcapex', or 'contract'
 
 	// Categorize expense types as OPEX or CAPEX
 	// This can be customized based on your expense type naming
@@ -313,6 +334,83 @@
 			}
 		});
 		return Math.round(total);
+	}
+
+	// Get all unique contracts from teammates
+	function getAllContracts() {
+		const contractSet = new Set();
+		teammates.forEach(teammate => {
+			if (teammate.contracts && teammate.contracts.length > 0) {
+				teammate.contracts.forEach(contract => {
+					if (contract) contractSet.add(contract);
+				});
+			} else {
+				// If no contracts specified, use "Unassigned"
+				contractSet.add('Unassigned');
+			}
+		});
+		return Array.from(contractSet).sort();
+	}
+
+	// Get spend for a specific contract in a specific month
+	function getContractSpendNumeric(contract, month) {
+		if (!teammates || teammates.length === 0) {
+			return 0;
+		}
+		let total = 0;
+		const plusMultiplier = parseFloat(plusValue) || 1;
+		teammates.forEach(teammate => {
+			if (!teammate || !teammate.id) return;
+			
+			// Check if teammate belongs to this contract
+			const teammateContracts = teammate.contracts && teammate.contracts.length > 0 
+				? teammate.contracts 
+				: ['Unassigned'];
+			
+			if (teammateContracts.includes(contract)) {
+				const forecastValue = getForecastValue(teammate.id, month);
+				if (forecastValue && forecastValue !== '') {
+					const numValue = parseFloat(forecastValue);
+					if (!isNaN(numValue)) {
+						const baseRate = teammate.baseRate || 0;
+						total += baseRate * numValue * 173.33 * plusMultiplier;
+					}
+				}
+			}
+		});
+		return Math.round(total);
+	}
+
+	// Get chart data for contracts (returns array of datasets, one per contract)
+	function getContractChartData() {
+		const contracts = getAllContracts();
+		const colorPalette = [
+			'rgb(75, 192, 192)',
+			'rgb(54, 162, 235)',
+			'rgb(255, 99, 132)',
+			'rgb(255, 206, 86)',
+			'rgb(153, 102, 255)',
+			'rgb(255, 159, 64)',
+			'rgb(199, 199, 199)',
+			'rgb(83, 102, 255)',
+			'rgb(255, 99, 255)',
+			'rgb(99, 255, 132)',
+			'rgb(255, 132, 99)',
+			'rgb(132, 99, 255)'
+		];
+		
+		return contracts.map((contract, index) => {
+			const data = months.map(month => getContractSpendNumeric(contract, month));
+			const color = colorPalette[index % colorPalette.length];
+			return {
+				label: contract,
+				data: data,
+				borderColor: color,
+				backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.2)'),
+				fill: true,
+				tension: 0.4
+			};
+		});
 	}
 
 	function getChartData() {
@@ -407,6 +505,54 @@
 							tension: 0.4
 						}
 					]
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					plugins: {
+						legend: {
+							display: true,
+							position: 'top'
+						},
+						tooltip: {
+							callbacks: {
+								label: function(context) {
+									return context.dataset.label + ': $' + context.parsed.y.toLocaleString('en-US');
+								}
+							}
+						}
+					},
+					scales: {
+						y: {
+							beginAtZero: true,
+							ticks: {
+								callback: function(value) {
+									return '$' + value.toLocaleString('en-US');
+								}
+							}
+						}
+					}
+				}
+			});
+		}
+	}
+
+	function updateContractChart() {
+		if (!contractChartCanvas || !browser) return;
+		
+		const datasets = getContractChartData();
+		
+		if (contractChartInstance) {
+			// Update existing chart
+			contractChartInstance.data.datasets = datasets;
+			contractChartInstance.update();
+		} else {
+			const ctx = contractChartCanvas.getContext('2d');
+			contractChartInstance = new Chart(ctx, {
+				type: 'line',
+				data: {
+					labels: months,
+					datasets: datasets
 				},
 				options: {
 					responsive: true,
@@ -630,6 +776,15 @@
 									<i class="bi bi-graph-up me-1"></i>
 									OPEX/CAPEX
 								</button>
+								<button
+									type="button"
+									class="btn btn-sm {visibleChart === 'contract' ? 'btn-secondary' : 'btn-outline-secondary'}"
+									onclick={() => visibleChart = 'contract'}
+									aria-pressed={visibleChart === 'contract'}
+								>
+									<i class="bi bi-file-earmark-text me-1"></i>
+									By Contract
+								</button>
 							</div>
 							<div class="text-end">
 								<strong class="small text-muted">Grand Total: </strong>
@@ -648,6 +803,13 @@
 						{#if visibleChart === 'opexcapex'}
 							<div class="mb-4" style="height: 300px;">
 								<canvas bind:this={opexCapexChartCanvas}></canvas>
+							</div>
+						{/if}
+
+						<!-- Contract Area Chart -->
+						{#if visibleChart === 'contract'}
+							<div class="mb-4" style="height: 300px;">
+								<canvas bind:this={contractChartCanvas}></canvas>
 							</div>
 						{/if}
 						
