@@ -13,13 +13,14 @@
 	let showAdminWindow = $state(false);
 	let selectedYear = $state(2025);
 	let plusValue = $state('1');
+	let viewMode = $state('single'); // 'single' or 'two-years'
 
 	// Teammates data (loaded from AdminPanel)
 	let teammates = $state([]);
 	let isLoadingTeammates = $state(false);
 
 	// AdminPanel reference
-	let adminPanelRef;
+	let adminPanelRef = $state(null);
 
 	// Initialize Bootstrap tooltips
 	function initTooltips() {
@@ -67,6 +68,7 @@
 		forecastData;
 		teammates;
 		plusValue;
+		viewMode;
 		
 		// Destroy and cleanup charts when they become hidden
 		if (currentVisibleChart !== 'total' && chartInstance) {
@@ -135,6 +137,31 @@
 		}
 	});
 
+	// Destroy charts when view mode changes to force recreation
+	$effect(() => {
+		if (!browser) return;
+		viewMode; // Track view mode changes
+		
+		// Constrain selectedYear when switching to two-year mode
+		if (viewMode === 'two-years' && selectedYear >= 2030) {
+			selectedYear = 2029;
+		}
+		
+		// Destroy all chart instances when view mode changes
+		if (chartInstance) {
+			chartInstance.destroy();
+			chartInstance = null;
+		}
+		if (opexCapexChartInstance) {
+			opexCapexChartInstance.destroy();
+			opexCapexChartInstance = null;
+		}
+		if (contractChartInstance) {
+			contractChartInstance.destroy();
+			contractChartInstance = null;
+		}
+	});
+
 	// Re-initialize tooltips when teammates data changes
 	$effect(() => {
 		if (browser && teammates.length > 0) {
@@ -189,13 +216,14 @@
 		expandedRows = new Set(expandedRows); // Trigger reactivity
 	}
 
-	function getForecastValue(teammateId, month) {
-		const key = `${teammateId}_${selectedYear}`;
+	function getForecastValue(teammateId, month, year = null) {
+		const yearToUse = year || selectedYear;
+		const key = `${teammateId}_${yearToUse}`;
 		return forecastData[key]?.[month] || '';
 	}
 
-	function calculateCellValue(teammate, month) {
-		const forecastValue = getForecastValue(teammate.id, month);
+	function calculateCellValue(teammate, month, year = null) {
+		const forecastValue = getForecastValue(teammate.id, month, year);
 		if (!forecastValue || forecastValue === '') {
 			return '';
 		}
@@ -209,7 +237,7 @@
 		return Math.round(result).toLocaleString('en-US');
 	}
 
-	function calculateColumnTotal(month) {
+	function calculateColumnTotal(month, year = null) {
 		if (!teammates || teammates.length === 0) {
 			return '';
 		}
@@ -217,7 +245,7 @@
 		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
-			const forecastValue = getForecastValue(teammate.id, month);
+			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
 				const numValue = parseFloat(forecastValue);
 				if (!isNaN(numValue)) {
@@ -234,14 +262,22 @@
 			return 0;
 		}
 		let grandTotal = 0;
-		months.forEach(month => {
-			const monthTotal = getColumnTotalNumeric(month);
-			grandTotal += monthTotal;
-		});
+		if (viewMode === 'two-years') {
+			const year1 = selectedYear;
+			const year2 = selectedYear + 1;
+			months.forEach(month => {
+				grandTotal += getColumnTotalNumeric(month, year1);
+				grandTotal += getColumnTotalNumeric(month, year2);
+			});
+		} else {
+			months.forEach(month => {
+				grandTotal += getColumnTotalNumeric(month);
+			});
+		}
 		return grandTotal;
 	}
 
-	function getColumnTotalNumeric(month) {
+	function getColumnTotalNumeric(month, year = null) {
 		if (!teammates || teammates.length === 0) {
 			return 0;
 		}
@@ -249,7 +285,7 @@
 		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
-			const forecastValue = getForecastValue(teammate.id, month);
+			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
 				const numValue = parseFloat(forecastValue);
 				if (!isNaN(numValue)) {
@@ -282,7 +318,7 @@
 		return opexKeywords.some(keyword => lowerExpenseType.includes(keyword));
 	}
 
-	function getOpexTotalNumeric(month) {
+	function getOpexTotalNumeric(month, year = null) {
 		if (!teammates || teammates.length === 0) {
 			return 0;
 		}
@@ -290,7 +326,7 @@
 		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
-			const forecastValue = getForecastValue(teammate.id, month);
+			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
 				const numValue = parseFloat(forecastValue);
 				if (!isNaN(numValue)) {
@@ -309,7 +345,7 @@
 		return Math.round(total);
 	}
 
-	function getCapexTotalNumeric(month) {
+	function getCapexTotalNumeric(month, year = null) {
 		if (!teammates || teammates.length === 0) {
 			return 0;
 		}
@@ -317,7 +353,7 @@
 		const plusMultiplier = parseFloat(plusValue) || 1;
 		teammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
-			const forecastValue = getForecastValue(teammate.id, month);
+			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
 				const numValue = parseFloat(forecastValue);
 				if (!isNaN(numValue)) {
@@ -353,7 +389,7 @@
 	}
 
 	// Get spend for a specific contract in a specific month
-	function getContractSpendNumeric(contract, month) {
+	function getContractSpendNumeric(contract, month, year = null) {
 		if (!teammates || teammates.length === 0) {
 			return 0;
 		}
@@ -368,7 +404,7 @@
 				: ['Unassigned'];
 			
 			if (teammateContracts.includes(contract)) {
-				const forecastValue = getForecastValue(teammate.id, month);
+				const forecastValue = getForecastValue(teammate.id, month, year);
 				if (forecastValue && forecastValue !== '') {
 					const numValue = parseFloat(forecastValue);
 					if (!isNaN(numValue)) {
@@ -399,46 +435,138 @@
 			'rgb(132, 99, 255)'
 		];
 		
-		return contracts.map((contract, index) => {
-			const data = months.map(month => getContractSpendNumeric(contract, month));
-			const color = colorPalette[index % colorPalette.length];
-			return {
-				label: contract,
-				data: data,
-				borderColor: color,
-				backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.2)'),
-				fill: true,
-				tension: 0.4
-			};
-		});
+		if (viewMode === 'two-years') {
+			const year1 = selectedYear;
+			const year2 = selectedYear + 1;
+			const allMonths = [...months.map(m => `${m} ${year1}`), ...months.map(m => `${m} ${year2}`)];
+			
+			return contracts.flatMap((contract, index) => {
+				const color = colorPalette[index % colorPalette.length];
+				const year1Data = months.map(month => getContractSpendNumeric(contract, month, year1));
+				const year2Data = months.map(month => getContractSpendNumeric(contract, month, year2));
+				// Make data continuous - both years show all 24 months continuously, no gaps
+				const allData = [...year1Data, ...year2Data];
+				return [
+					{
+						label: `${contract} (${year1}-${year2})`,
+						data: allData,
+						borderColor: color,
+						backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+						fill: true,
+						tension: 0.4
+					},
+					{
+						label: `${contract} (${year1}-${year2})`,
+						data: allData,
+						borderColor: color,
+						backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.08)'),
+						borderDash: [5, 5],
+						fill: true,
+						tension: 0.4
+					}
+				];
+			});
+		} else {
+			return contracts.map((contract, index) => {
+				const data = months.map(month => getContractSpendNumeric(contract, month));
+				const color = colorPalette[index % colorPalette.length];
+				return {
+					label: contract,
+					data: data,
+					borderColor: color,
+					backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+					fill: true,
+					tension: 0.4
+				};
+			});
+		}
 	}
 
 	function getChartData() {
-		return months.map(month => getColumnTotalNumeric(month));
+		if (viewMode === 'two-years') {
+			const year1 = selectedYear;
+			const year2 = selectedYear + 1;
+			const year1Data = months.map(month => getColumnTotalNumeric(month, year1));
+			const year2Data = months.map(month => getColumnTotalNumeric(month, year2));
+			return {
+				labels: [...months.map(m => `${m} ${year1}`), ...months.map(m => `${m} ${year2}`)],
+				year1Data,
+				year2Data
+			};
+		} else {
+			return {
+				labels: months,
+				year1Data: months.map(month => getColumnTotalNumeric(month)),
+				year2Data: null
+			};
+		}
 	}
 
 	function updateChart() {
 		if (!chartCanvas || !browser) return;
 		
-		const data = getChartData();
+		const chartData = getChartData();
 		
 		if (chartInstance) {
-			chartInstance.data.datasets[0].data = data;
+			chartInstance.data.labels = chartData.labels;
+			if (viewMode === 'two-years') {
+				// Make data continuous - both datasets show all 24 months continuously, no gaps
+				const allData = [...chartData.year1Data, ...chartData.year2Data];
+				chartInstance.data.datasets[0].data = allData;
+				chartInstance.data.datasets[1].data = allData;
+				// Update labels to show year range
+				chartInstance.data.datasets[0].label = `Total Forecast (${selectedYear}-${selectedYear + 1})`;
+				chartInstance.data.datasets[1].label = `Total Forecast (${selectedYear}-${selectedYear + 1})`;
+				// Ensure both years use the same green color
+				chartInstance.data.datasets[0].borderColor = 'rgb(75, 192, 192)';
+				chartInstance.data.datasets[0].backgroundColor = 'rgba(75, 192, 192, 0.1)';
+				chartInstance.data.datasets[1].borderColor = 'rgb(75, 192, 192)';
+				chartInstance.data.datasets[1].backgroundColor = 'rgba(75, 192, 192, 0.08)';
+			} else {
+				chartInstance.data.datasets[0].data = chartData.year1Data;
+				chartInstance.data.datasets[0].label = 'Total Forecast';
+			}
 			chartInstance.update();
 		} else {
 			const ctx = chartCanvas.getContext('2d');
+			const datasets = viewMode === 'two-years' 
+				? (() => {
+					// Make data continuous - both datasets show all 24 months continuously, no gaps
+					const allData = [...chartData.year1Data, ...chartData.year2Data];
+					return [
+						{
+							label: `Total Forecast (${selectedYear}-${selectedYear + 1})`,
+							data: allData,
+							borderColor: 'rgb(75, 192, 192)',
+							backgroundColor: 'rgba(75, 192, 192, 0.1)',
+							fill: true,
+							tension: 0.4
+						},
+						{
+							label: `Total Forecast (${selectedYear}-${selectedYear + 1})`,
+							data: allData,
+							borderColor: 'rgb(75, 192, 192)',
+							backgroundColor: 'rgba(75, 192, 192, 0.08)',
+							borderDash: [5, 5],
+							fill: true,
+							tension: 0.4
+						}
+					];
+				})()
+				: [{
+					label: 'Total Forecast',
+					data: chartData.year1Data,
+					borderColor: 'rgb(75, 192, 192)',
+					backgroundColor: 'rgba(75, 192, 192, 0.1)',
+					fill: true,
+					tension: 0.4
+				}];
+			
 			chartInstance = new Chart(ctx, {
 				type: 'line',
 				data: {
-					labels: months,
-					datasets: [{
-						label: 'Total Forecast',
-						data: data,
-						borderColor: 'rgb(75, 192, 192)',
-						backgroundColor: 'rgba(75, 192, 192, 0.2)',
-						fill: true,
-						tension: 0.4
-					}]
+					labels: chartData.labels,
+					datasets: datasets
 				},
 				options: {
 					responsive: true,
@@ -474,66 +602,166 @@
 	function updateOpexCapexChart() {
 		if (!opexCapexChartCanvas || !browser) return;
 		
-		const opexData = months.map(month => getOpexTotalNumeric(month));
-		const capexData = months.map(month => getCapexTotalNumeric(month));
-		
-		if (opexCapexChartInstance) {
-			opexCapexChartInstance.data.datasets[0].data = opexData;
-			opexCapexChartInstance.data.datasets[1].data = capexData;
-			opexCapexChartInstance.update();
-		} else {
-			const ctx = opexCapexChartCanvas.getContext('2d');
-			opexCapexChartInstance = new Chart(ctx, {
-				type: 'line',
-				data: {
-					labels: months,
-					datasets: [
-						{
-							label: 'OPEX',
-							data: opexData,
-							borderColor: 'rgb(54, 162, 235)',
-							backgroundColor: 'rgba(54, 162, 235, 0.2)',
-							fill: true,
-							tension: 0.4
-						},
-						{
-							label: 'CAPEX',
-							data: capexData,
-							borderColor: 'rgb(255, 99, 132)',
-							backgroundColor: 'rgba(255, 99, 132, 0.2)',
-							fill: true,
-							tension: 0.4
-						}
-					]
-				},
-				options: {
-					responsive: true,
-					maintainAspectRatio: false,
-					plugins: {
-						legend: {
-							display: true,
-							position: 'top'
-						},
-						tooltip: {
-							callbacks: {
-								label: function(context) {
-									return context.dataset.label + ': $' + context.parsed.y.toLocaleString('en-US');
+		if (viewMode === 'two-years') {
+			const year1 = selectedYear;
+			const year2 = selectedYear + 1;
+			const opexYear1 = months.map(month => getOpexTotalNumeric(month, year1));
+			const capexYear1 = months.map(month => getCapexTotalNumeric(month, year1));
+			const opexYear2 = months.map(month => getOpexTotalNumeric(month, year2));
+			const capexYear2 = months.map(month => getCapexTotalNumeric(month, year2));
+			const labels = [...months.map(m => `${m} ${year1}`), ...months.map(m => `${m} ${year2}`)];
+			
+			// Make data continuous - both years show all 24 months continuously, no gaps
+			const opexAllData = [...opexYear1, ...opexYear2];
+			const capexAllData = [...capexYear1, ...capexYear2];
+			
+			if (opexCapexChartInstance) {
+				opexCapexChartInstance.data.labels = labels;
+				opexCapexChartInstance.data.datasets[0].data = opexAllData;
+				opexCapexChartInstance.data.datasets[1].data = capexAllData;
+				opexCapexChartInstance.data.datasets[2].data = opexAllData;
+				opexCapexChartInstance.data.datasets[3].data = capexAllData;
+				// Update labels to show year range
+				opexCapexChartInstance.data.datasets[0].label = `OPEX (${year1}-${year2})`;
+				opexCapexChartInstance.data.datasets[1].label = `CAPEX (${year1}-${year2})`;
+				opexCapexChartInstance.data.datasets[2].label = `OPEX (${year1}-${year2})`;
+				opexCapexChartInstance.data.datasets[3].label = `CAPEX (${year1}-${year2})`;
+				opexCapexChartInstance.update();
+			} else {
+				const ctx = opexCapexChartCanvas.getContext('2d');
+				opexCapexChartInstance = new Chart(ctx, {
+					type: 'line',
+					data: {
+						labels: labels,
+						datasets: [
+							{
+								label: `OPEX (${year1}-${year2})`,
+								data: opexAllData,
+								borderColor: 'rgb(54, 162, 235)',
+								backgroundColor: 'rgba(54, 162, 235, 0.1)',
+								fill: true,
+								tension: 0.4
+							},
+							{
+								label: `CAPEX (${year1}-${year2})`,
+								data: capexAllData,
+								borderColor: 'rgb(255, 99, 132)',
+								backgroundColor: 'rgba(255, 99, 132, 0.1)',
+								fill: true,
+								tension: 0.4
+							},
+							{
+								label: `OPEX (${year1}-${year2})`,
+								data: opexAllData,
+								borderColor: 'rgb(54, 162, 235)',
+								backgroundColor: 'rgba(54, 162, 235, 0.08)',
+								borderDash: [5, 5],
+								fill: true,
+								tension: 0.4
+							},
+							{
+								label: `CAPEX (${year1}-${year2})`,
+								data: capexAllData,
+								borderColor: 'rgb(255, 99, 132)',
+								backgroundColor: 'rgba(255, 99, 132, 0.08)',
+								borderDash: [5, 5],
+								fill: true,
+								tension: 0.4
+							}
+						]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: false,
+						plugins: {
+							legend: {
+								display: true,
+								position: 'top'
+							},
+							tooltip: {
+								callbacks: {
+									label: function(context) {
+										return context.dataset.label + ': $' + context.parsed.y.toLocaleString('en-US');
+									}
 								}
 							}
-						}
-					},
-					scales: {
-						y: {
-							beginAtZero: true,
-							ticks: {
-								callback: function(value) {
-									return '$' + value.toLocaleString('en-US');
+						},
+						scales: {
+							y: {
+								beginAtZero: true,
+								ticks: {
+									callback: function(value) {
+										return '$' + value.toLocaleString('en-US');
+									}
 								}
 							}
 						}
 					}
-				}
-			});
+				});
+			}
+		} else {
+			const opexData = months.map(month => getOpexTotalNumeric(month));
+			const capexData = months.map(month => getCapexTotalNumeric(month));
+			
+			if (opexCapexChartInstance) {
+				opexCapexChartInstance.data.labels = months;
+				opexCapexChartInstance.data.datasets[0].data = opexData;
+				opexCapexChartInstance.data.datasets[1].data = capexData;
+				opexCapexChartInstance.update();
+			} else {
+				const ctx = opexCapexChartCanvas.getContext('2d');
+				opexCapexChartInstance = new Chart(ctx, {
+					type: 'line',
+					data: {
+						labels: months,
+						datasets: [
+							{
+								label: 'OPEX',
+								data: opexData,
+								borderColor: 'rgb(54, 162, 235)',
+								backgroundColor: 'rgba(54, 162, 235, 0.1)',
+								fill: true,
+								tension: 0.4
+							},
+							{
+								label: 'CAPEX',
+								data: capexData,
+								borderColor: 'rgb(255, 99, 132)',
+								backgroundColor: 'rgba(255, 99, 132, 0.1)',
+								fill: true,
+								tension: 0.4
+							}
+						]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: false,
+						plugins: {
+							legend: {
+								display: true,
+								position: 'top'
+							},
+							tooltip: {
+								callbacks: {
+									label: function(context) {
+										return context.dataset.label + ': $' + context.parsed.y.toLocaleString('en-US');
+									}
+								}
+							}
+						},
+						scales: {
+							y: {
+								beginAtZero: true,
+								ticks: {
+									callback: function(value) {
+										return '$' + value.toLocaleString('en-US');
+									}
+								}
+							}
+						}
+					}
+				});
+			}
 		}
 	}
 
@@ -541,9 +769,13 @@
 		if (!contractChartCanvas || !browser) return;
 		
 		const datasets = getContractChartData();
+		const labels = viewMode === 'two-years' 
+			? [...months.map(m => `${m} ${selectedYear}`), ...months.map(m => `${m} ${selectedYear + 1}`)]
+			: months;
 		
 		if (contractChartInstance) {
 			// Update existing chart
+			contractChartInstance.data.labels = labels;
 			contractChartInstance.data.datasets = datasets;
 			contractChartInstance.update();
 		} else {
@@ -551,7 +783,7 @@
 			contractChartInstance = new Chart(ctx, {
 				type: 'line',
 				data: {
-					labels: months,
+					labels: labels,
 					datasets: datasets
 				},
 				options: {
@@ -585,8 +817,9 @@
 		}
 	}
 
-	async function setForecastValue(teammateId, month, value) {
-		const key = `${teammateId}_${selectedYear}`;
+	async function setForecastValue(teammateId, month, value, year = null) {
+		const yearToUse = year || selectedYear;
+		const key = `${teammateId}_${yearToUse}`;
 		if (!forecastData[key]) {
 			forecastData[key] = {};
 		}
@@ -594,7 +827,7 @@
 		forecastData = { ...forecastData }; // Trigger reactivity
 		
 		// Save to database
-		await saveForecastValue(teammateId, month, value);
+		await saveForecastValue(teammateId, month, value, yearToUse);
 	}
 
 	// Load forecast data from database
@@ -624,7 +857,7 @@
 	}
 
 	// Save forecast value to database
-	async function saveForecastValue(teammateId, month, value) {
+	async function saveForecastValue(teammateId, month, value, year = null) {
 		if (!browser) return;
 		
 		if (!client.models.Forecast) {
@@ -632,12 +865,14 @@
 			return;
 		}
 
+		const yearToUse = year || selectedYear;
+
 		try {
 			// Check if a record already exists for this teammate/year/month
 			const existing = await client.models.Forecast.list({
 				filter: {
 					teammateId: { eq: teammateId },
-					year: { eq: selectedYear },
+					year: { eq: yearToUse },
 					month: { eq: month }
 				}
 			});
@@ -660,7 +895,7 @@
 				// Create new record
 				await client.models.Forecast.create({
 					teammateId: teammateId,
-					year: selectedYear,
+					year: yearToUse,
 					month: month,
 					value: numValue
 				});
@@ -686,7 +921,7 @@
 	}
 </style>
 
-<div class="container mt-5">
+<div class="container-fluid mt-5">
 	<div class="row justify-content-center">
 		<div class="col-md-12">
 			<div class="card">
@@ -706,12 +941,67 @@
 				</div>
 				<div class="card-body">
 					<div class="d-flex justify-content-between align-items-center mb-3">
-						<h5 class="mb-0">
-							<i class="bi bi-people me-2"></i>
-							Teammates
-						</h5>
+						<div class="btn-group" role="group" aria-label="Chart visibility toggle">
+							<button
+								type="button"
+								class="btn btn-sm {visibleChart === 'dataonly' ? 'btn-secondary' : 'btn-outline-secondary'}"
+								onclick={() => visibleChart = 'dataonly'}
+								aria-pressed={visibleChart === 'dataonly'}
+							>
+								<i class="bi bi-table me-1"></i>
+								Data Only
+							</button>
+							<button
+								type="button"
+								class="btn btn-sm {visibleChart === 'total' ? 'btn-secondary' : 'btn-outline-secondary'}"
+								onclick={() => visibleChart = 'total'}
+								aria-pressed={visibleChart === 'total'}
+							>
+								<i class="bi bi-graph-up-arrow me-1"></i>
+								Total Forecast
+							</button>
+							<button
+								type="button"
+								class="btn btn-sm {visibleChart === 'opexcapex' ? 'btn-secondary' : 'btn-outline-secondary'}"
+								onclick={() => visibleChart = 'opexcapex'}
+								aria-pressed={visibleChart === 'opexcapex'}
+							>
+								<i class="bi bi-graph-up me-1"></i>
+								OPEX/CAPEX
+							</button>
+							<button
+								type="button"
+								class="btn btn-sm {visibleChart === 'contract' ? 'btn-secondary' : 'btn-outline-secondary'}"
+								onclick={() => visibleChart = 'contract'}
+								aria-pressed={visibleChart === 'contract'}
+							>
+								<i class="bi bi-file-earmark-text me-1"></i>
+								By Contract
+							</button>
+						</div>
 						<div class="d-flex align-items-center gap-2">
-							<label for="year-select" class="form-label mb-0 small">Year:</label>
+							<!-- View Mode Toggle -->
+							<div class="btn-group" role="group" aria-label="View mode toggle">
+								<button
+									type="button"
+									class="btn btn-sm {viewMode === 'single' ? 'btn-secondary' : 'btn-outline-secondary'}"
+									onclick={() => viewMode = 'single'}
+									aria-pressed={viewMode === 'single'}
+								>
+									<i class="bi bi-calendar me-1"></i>
+									Single Year
+								</button>
+								<button
+									type="button"
+									class="btn btn-sm {viewMode === 'two-years' ? 'btn-secondary' : 'btn-outline-secondary'}"
+									onclick={() => viewMode = 'two-years'}
+									aria-pressed={viewMode === 'two-years'}
+								>
+									<i class="bi bi-calendar-range me-1"></i>
+									Two Years
+								</button>
+							</div>
+							<label for="year-select" class="form-label mb-0 small">{viewMode === 'two-years' ? 'Start Year:' : 'Year:'}</label>
 							<select 
 								id="year-select"
 								class="form-select form-select-sm" 
@@ -723,7 +1013,9 @@
 								<option value={2027}>2027</option>
 								<option value={2028}>2028</option>
 								<option value={2029}>2029</option>
-								<option value={2030}>2030</option>
+								{#if viewMode === 'single'}
+									<option value={2030}>2030</option>
+								{/if}
 							</select>
 							<label for="plus-input" class="form-label mb-0 small">+</label>
 							<input
@@ -746,46 +1038,7 @@
 					{:else if teammates.length === 0}
 						<p class="text-muted">No teammates found. Add teammates in the admin panel.</p>
 					{:else}
-						<!-- Chart Visibility Toggle -->
-						<div class="mb-3 d-flex justify-content-between align-items-center">
-							<div class="btn-group" role="group" aria-label="Chart visibility toggle">
-								<button
-									type="button"
-									class="btn btn-sm {visibleChart === 'dataonly' ? 'btn-secondary' : 'btn-outline-secondary'}"
-									onclick={() => visibleChart = 'dataonly'}
-									aria-pressed={visibleChart === 'dataonly'}
-								>
-									<i class="bi bi-table me-1"></i>
-									Data Only
-								</button>
-								<button
-									type="button"
-									class="btn btn-sm {visibleChart === 'total' ? 'btn-secondary' : 'btn-outline-secondary'}"
-									onclick={() => visibleChart = 'total'}
-									aria-pressed={visibleChart === 'total'}
-								>
-									<i class="bi bi-graph-up-arrow me-1"></i>
-									Total Forecast
-								</button>
-								<button
-									type="button"
-									class="btn btn-sm {visibleChart === 'opexcapex' ? 'btn-secondary' : 'btn-outline-secondary'}"
-									onclick={() => visibleChart = 'opexcapex'}
-									aria-pressed={visibleChart === 'opexcapex'}
-								>
-									<i class="bi bi-graph-up me-1"></i>
-									OPEX/CAPEX
-								</button>
-								<button
-									type="button"
-									class="btn btn-sm {visibleChart === 'contract' ? 'btn-secondary' : 'btn-outline-secondary'}"
-									onclick={() => visibleChart = 'contract'}
-									aria-pressed={visibleChart === 'contract'}
-								>
-									<i class="bi bi-file-earmark-text me-1"></i>
-									By Contract
-								</button>
-							</div>
+						<div class="mb-3 d-flex justify-content-end align-items-center">
 							<div class="text-end">
 								<strong class="small text-muted">Grand Total: </strong>
 								<span class="fw-bold">${calculateGrandTotal().toLocaleString('en-US')}</span>
@@ -816,21 +1069,55 @@
 						<div class="table-responsive">
 							<table class="table table-sm table-hover table-bordered forecast-table small text-muted">
 								<thead>
-									<tr class="table-light">
-										<th class="text-end">{selectedYear}</th>
-										<th class="text-end">JAN</th>
-										<th class="text-end">FEB</th>
-										<th class="text-end">MAR</th>
-										<th class="text-end">APR</th>
-										<th class="text-end">MAY</th>
-										<th class="text-end">JUN</th>
-										<th class="text-end">JUL</th>
-										<th class="text-end">AUG</th>
-										<th class="text-end">SEP</th>
-										<th class="text-end">OCT</th>
-										<th class="text-end">NOV</th>
-										<th class="text-end">DEC</th>
-									</tr>
+									{#if viewMode === 'two-years'}
+										<tr class="table-light">
+											<th class="text-end" rowspan="2">Name</th>
+											<th class="text-center" colspan="12">{selectedYear}</th>
+											<th class="text-center" colspan="12">{selectedYear + 1}</th>
+										</tr>
+										<tr class="table-light">
+											<th class="text-end">JAN</th>
+											<th class="text-end">FEB</th>
+											<th class="text-end">MAR</th>
+											<th class="text-end">APR</th>
+											<th class="text-end">MAY</th>
+											<th class="text-end">JUN</th>
+											<th class="text-end">JUL</th>
+											<th class="text-end">AUG</th>
+											<th class="text-end">SEP</th>
+											<th class="text-end">OCT</th>
+											<th class="text-end">NOV</th>
+											<th class="text-end">DEC</th>
+											<th class="text-end">JAN</th>
+											<th class="text-end">FEB</th>
+											<th class="text-end">MAR</th>
+											<th class="text-end">APR</th>
+											<th class="text-end">MAY</th>
+											<th class="text-end">JUN</th>
+											<th class="text-end">JUL</th>
+											<th class="text-end">AUG</th>
+											<th class="text-end">SEP</th>
+											<th class="text-end">OCT</th>
+											<th class="text-end">NOV</th>
+											<th class="text-end">DEC</th>
+										</tr>
+									{:else}
+										<tr class="table-light">
+											<th class="text-end">{selectedYear}</th>
+											<th class="text-end">JAN</th>
+											<th class="text-end">FEB</th>
+											<th class="text-end">MAR</th>
+											<th class="text-end">APR</th>
+											<th class="text-end">MAY</th>
+											<th class="text-end">JUN</th>
+											<th class="text-end">JUL</th>
+											<th class="text-end">AUG</th>
+											<th class="text-end">SEP</th>
+											<th class="text-end">OCT</th>
+											<th class="text-end">NOV</th>
+											<th class="text-end">DEC</th>
+										</tr>
+									{/if}
 								</thead>
 								<tbody>
 									{#each teammates as teammate}
@@ -868,41 +1155,112 @@
 													></i>
 												</span>
 											</td>
-											{#each monthsArray as month}
-												{@const cellValue = calculateCellValue(teammate, month)}
-												<td class="text-nowrap text-end">
-													{cellValue ? `$${cellValue}` : ''}
-												</td>
-											{/each}
+											{#if viewMode === 'two-years'}
+												{@const year1 = selectedYear}
+												{@const year2 = selectedYear + 1}
+												<!-- Year 1 columns -->
+												{#each monthsArray as month}
+													{@const cellValue = calculateCellValue(teammate, month, year1)}
+													<td class="text-nowrap text-end">
+														{cellValue ? `$${cellValue}` : '$0'}
+													</td>
+												{/each}
+												<!-- Year 2 columns -->
+												{#each monthsArray as month}
+													{@const cellValue = calculateCellValue(teammate, month, year2)}
+													<td class="text-nowrap text-end">
+														{cellValue ? `$${cellValue}` : '$0'}
+													</td>
+												{/each}
+											{:else}
+												{#each monthsArray as month}
+													{@const cellValue = calculateCellValue(teammate, month)}
+													<td class="text-nowrap text-end">
+														{cellValue ? `$${cellValue}` : '$0'}
+													</td>
+												{/each}
+											{/if}
 										</tr>
 										{#if isExpanded}
 											<tr class="table-light">
 												<td class="text-nowrap small text-muted"></td>
-												{#each monthsArray as month}
-													<td class="text-nowrap text-end">
-														<input
-															type="text"
-															class="form-control form-control-sm text-end"
-															placeholder="0"
-															value={getForecastValue(teammate.id, month)}
-															oninput={(e) => setForecastValue(teammate.id, month, e.target.value)}
-														/>
-													</td>
-												{/each}
+												{#if viewMode === 'two-years'}
+													{@const year1 = selectedYear}
+													{@const year2 = selectedYear + 1}
+													<!-- Year 1 input columns -->
+													{#each monthsArray as month}
+														<td class="text-nowrap text-end">
+															<input
+																type="text"
+																class="form-control form-control-sm text-end"
+																placeholder="0"
+																value={getForecastValue(teammate.id, month, year1)}
+																oninput={(e) => setForecastValue(teammate.id, month, e.target.value, year1)}
+															/>
+														</td>
+													{/each}
+													<!-- Year 2 input columns -->
+													{#each monthsArray as month}
+														<td class="text-nowrap text-end">
+															<input
+																type="text"
+																class="form-control form-control-sm text-end"
+																placeholder="0"
+																value={getForecastValue(teammate.id, month, year2)}
+																oninput={(e) => setForecastValue(teammate.id, month, e.target.value, year2)}
+															/>
+														</td>
+													{/each}
+												{:else}
+													{#each monthsArray as month}
+														<td class="text-nowrap text-end">
+															<input
+																type="text"
+																class="form-control form-control-sm text-end"
+																placeholder="0"
+																value={getForecastValue(teammate.id, month)}
+																oninput={(e) => setForecastValue(teammate.id, month, e.target.value)}
+															/>
+														</td>
+													{/each}
+												{/if}
 											</tr>
 										{/if}
 									{/each}
 									<!-- Totals Row -->
 									<tr class="fw-bold">
 										<td class="text-nowrap text-end">Total</td>
-										{#each ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as month}
-											<td class="text-nowrap text-end">
-												{(() => {
-													const total = calculateColumnTotal(month);
-													return total ? `$${total}` : '';
-												})()}
-											</td>
-										{/each}
+										{#if viewMode === 'two-years'}
+											{@const year1 = selectedYear}
+											{@const year2 = selectedYear + 1}
+											<!-- Year 1 totals -->
+											{#each ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as month}
+												<td class="text-nowrap text-end">
+													{(() => {
+														const total = calculateColumnTotal(month, year1);
+														return total ? `$${total}` : '$0';
+													})()}
+												</td>
+											{/each}
+											<!-- Year 2 totals -->
+											{#each ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as month}
+												<td class="text-nowrap text-end">
+													{(() => {
+														const total = calculateColumnTotal(month, year2);
+														return total ? `$${total}` : '$0';
+													})()}
+												</td>
+											{/each}
+										{:else}
+											{#each ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as month}
+												<td class="text-nowrap text-end">
+													{(() => {
+														const total = calculateColumnTotal(month);
+														return total ? `$${total}` : '$0';
+													})()}
+												</td>
+											{/each}
+										{/if}
 									</tr>
 								</tbody>
 							</table>

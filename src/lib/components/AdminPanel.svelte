@@ -13,8 +13,8 @@
 	let activeScreen = $state('groupings'); // 'groupings' or 'teammates'
 	let isSaving = $state(false);
 	let groupings = $state(null);
-	let groupingsManagerRef;
-	let teammatesManagerRef;
+	let groupingsManagerRef = $state(null);
+	let teammatesManagerRef = $state(null);
 
 	function setActiveScreen(screen) {
 		activeScreen = screen;
