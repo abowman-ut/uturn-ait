@@ -21,21 +21,6 @@
     }
   }
 
-  async function loadTodos() {
-    try {
-      isLoading = true;
-      error = null; // Clear any previous errors
-      const { data } = await client.models.Todo.list();
-      todos = data || [];
-      isDynamoDBConnected = true; // Connection successful
-    } catch (err) {
-      error = err.message;
-      isDynamoDBConnected = false; // Connection failed
-    } finally {
-      isLoading = false;
-    }
-  }
-
   // Set up Broadcast Channel for cross-window communication
   $effect(() => {
     if (browser) {
@@ -61,45 +46,6 @@
       channel.postMessage('refresh');
     }
   }
-
-  async function createTodo() {
-    try {
-      error = null; // Clear any previous errors
-      await client.models.Todo.create({
-        content: 'New todo item',
-        isDone: false,
-      });
-      await loadTodos();
-      notifyOtherWindows();
-    } catch (err) {
-      error = err.message;
-    }
-  }
-
-  async function updateTodo(id, isDone) {
-    try {
-      error = null; // Clear any previous errors
-      await client.models.Todo.update({
-        id: id,
-        isDone: !isDone,
-      });
-      await loadTodos();
-      notifyOtherWindows();
-    } catch (err) {
-      error = err.message;
-    }
-  }
-
-  async function deleteTodo(id) {
-    try {
-      error = null; // Clear any previous errors
-      await client.models.Todo.delete({ id });
-      await loadTodos();
-      notifyOtherWindows();
-    } catch (err) {
-      error = err.message;
-    }
-  }
 </script>
 
 
@@ -111,7 +57,7 @@
 				<div class="card-header">
 					<h1 class="card-title mb-0">
 						<i class="bi bi-bullseye text-danger me-2"></i>
-						AWS Uturn Clients
+						AWS Uturn AIT
 					</h1>
 				</div>
 				<div class="card-body">

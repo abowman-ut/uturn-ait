@@ -18,7 +18,7 @@
 </svelte:head>
 
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-	<div class="container">
+	<div class="container-fluid">
 		<a class="navbar-brand" href="/">
 			<i class="bi bi-bullseye text-danger me-2"></i>
 			AWS Uturn AIT
@@ -40,7 +40,7 @@
 					href="/forecast"
 					aria-current={isActive('/forecast') ? 'page' : undefined}
 				>
-					<i class="bi bi-graph-up me-1"></i> Forecast
+					<i class="bi bi-clipboard2-data me-1"></i> Forecasting
 				</a>
 			</div>
 		</div>

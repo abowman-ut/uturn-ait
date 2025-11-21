@@ -1,4 +1,4 @@
-# AWS U-Turn Clients
+# AWS U-Turn AIT
 
 A clean and simple SvelteKit application with Bootstrap integration, ready for AWS Amplify deployment.
 

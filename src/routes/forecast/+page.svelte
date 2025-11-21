@@ -12,12 +12,23 @@
 	
 	let showAdminWindow = $state(false);
 	let selectedYear = $state(2025);
-	let plusValue = $state('1');
+	let plusValue = $state('1'); // For single-year mode
+	let plusValueYear1 = $state('1'); // For two-year mode - year 1
+	let plusValueYear2 = $state('1'); // For two-year mode - year 2
 	let viewMode = $state('single'); // 'single' or 'two-years'
 
 	// Teammates data (loaded from AdminPanel)
 	let teammates = $state([]);
 	let isLoadingTeammates = $state(false);
+
+	// Contract filter
+	let selectedContractFilter = $state(null); // null = all contracts
+
+	// OPEX/CAPEX filter
+	let selectedExpenseFilter = $state(null); // null = all, 'opex' = OPEX only, 'capex' = CAPEX only
+
+	// Text filter for teammate names
+	let nameFilter = $state('');
 
 	// AdminPanel reference
 	let adminPanelRef = $state(null);
@@ -67,7 +78,13 @@
 		selectedYear;
 		forecastData;
 		teammates;
+		filteredTeammates;
+		selectedContractFilter;
+		selectedExpenseFilter;
+		nameFilter;
 		plusValue;
+		plusValueYear1;
+		plusValueYear2;
 		viewMode;
 		
 		// Destroy and cleanup charts when they become hidden
@@ -97,7 +114,7 @@
 		}
 		
 		// Lazy load total forecast chart only when visible and canvas is available
-		if (currentVisibleChart === 'total' && chartCanvas && teammates.length > 0) {
+		if (currentVisibleChart === 'total' && chartCanvas && filteredTeammates.length > 0) {
 			// Use requestAnimationFrame to ensure canvas is fully rendered in DOM
 			requestAnimationFrame(() => {
 				// Double-check canvas is still available and visible before initializing
@@ -108,7 +125,7 @@
 		}
 		
 		// Lazy load OPEX/CAPEX chart only when visible and canvas is available
-		if (currentVisibleChart === 'opexcapex' && opexCapexChartCanvas && teammates.length > 0) {
+		if (currentVisibleChart === 'opexcapex' && opexCapexChartCanvas && filteredTeammates.length > 0) {
 			// Use requestAnimationFrame to ensure canvas is fully rendered in DOM
 			requestAnimationFrame(() => {
 				// Double-check canvas is still available and visible before initializing
@@ -119,7 +136,7 @@
 		}
 		
 		// Lazy load contract chart only when visible and canvas is available
-		if (currentVisibleChart === 'contract' && contractChartCanvas && teammates.length > 0) {
+		if (currentVisibleChart === 'contract' && contractChartCanvas && filteredTeammates.length > 0) {
 			// Use requestAnimationFrame to ensure canvas is fully rendered in DOM
 			requestAnimationFrame(() => {
 				// Double-check canvas is still available and visible before initializing
@@ -145,6 +162,26 @@
 		// Constrain selectedYear when switching to two-year mode
 		if (viewMode === 'two-years' && selectedYear >= 2030) {
 			selectedYear = 2029;
+		}
+		
+		// Sync multiplier values when switching modes
+		if (viewMode === 'two-years') {
+			// When switching to two-year mode, initialize year2 with year1 value if year2 is still default
+			if (plusValueYear2 === '1' && plusValueYear1 !== '1') {
+				plusValueYear2 = plusValueYear1;
+			}
+			// Also sync from single-year plusValue if it's been changed
+			if (plusValue !== '1') {
+				plusValueYear1 = plusValue;
+				if (plusValueYear2 === '1') {
+					plusValueYear2 = plusValue;
+				}
+			}
+		} else {
+			// When switching to single-year mode, sync plusValue with year1
+			if (plusValueYear1 !== '1') {
+				plusValue = plusValueYear1;
+			}
 		}
 		
 		// Destroy all chart instances when view mode changes
@@ -206,6 +243,53 @@
 	let expandedRows = $state(new Set());
 	let forecastData = $state({}); // Structure: { teammateId_year: { month: value } }
 
+	// Filtered teammates based on contract selection
+	let filteredTeammates = $state([]);
+	
+	$effect(() => {
+		let filtered = teammates;
+		
+		// Filter by contract
+		if (selectedContractFilter !== null) {
+			filtered = filtered.filter(teammate => {
+				if (selectedContractFilter === 'Unassigned') {
+					return !teammate.contracts || teammate.contracts.length === 0;
+				}
+				return teammate.contracts && teammate.contracts.includes(selectedContractFilter);
+			});
+		}
+		
+		// Filter by OPEX/CAPEX
+		if (selectedExpenseFilter !== null) {
+			filtered = filtered.filter(teammate => {
+				if (!teammate.expenseTypes || teammate.expenseTypes.length === 0) {
+					// Default to OPEX if not specified
+					return selectedExpenseFilter === 'opex';
+				}
+				
+				const hasOpex = teammate.expenseTypes.some(et => isOpex(et));
+				const hasCapex = teammate.expenseTypes.some(et => !isOpex(et));
+				
+				if (selectedExpenseFilter === 'opex') {
+					return hasOpex;
+				} else if (selectedExpenseFilter === 'capex') {
+					return hasCapex;
+				}
+				return true;
+			});
+		}
+		
+		// Filter by name (text search)
+		if (nameFilter && nameFilter.trim() !== '') {
+			const searchTerm = nameFilter.trim().toLowerCase();
+			filtered = filtered.filter(teammate => {
+				const teammateName = (teammate.name || '').toLowerCase();
+				return teammateName.includes(searchTerm);
+			});
+		}
+		
+		filteredTeammates = filtered;
+	});
 
 	function toggleRow(teammateId) {
 		if (expandedRows.has(teammateId)) {
@@ -222,6 +306,19 @@
 		return forecastData[key]?.[month] || '';
 	}
 
+	// Get the multiplier value based on the year
+	function getPlusMultiplier(year = null) {
+		if (viewMode === 'two-years') {
+			const yearToUse = year || selectedYear;
+			if (yearToUse === selectedYear) {
+				return parseFloat(plusValueYear1) || 1;
+			} else if (yearToUse === selectedYear + 1) {
+				return parseFloat(plusValueYear2) || 1;
+			}
+		}
+		return parseFloat(plusValue) || 1;
+	}
+
 	function calculateCellValue(teammate, month, year = null) {
 		const forecastValue = getForecastValue(teammate.id, month, year);
 		if (!forecastValue || forecastValue === '') {
@@ -232,18 +329,20 @@
 			return '';
 		}
 		const baseRate = teammate.baseRate || 0;
-		const plusMultiplier = parseFloat(plusValue) || 1;
+		const yearToUse = year || selectedYear;
+		const plusMultiplier = getPlusMultiplier(yearToUse);
 		const result = baseRate * numValue * 173.33 * plusMultiplier;
 		return Math.round(result).toLocaleString('en-US');
 	}
 
 	function calculateColumnTotal(month, year = null) {
-		if (!teammates || teammates.length === 0) {
+		if (!filteredTeammates || filteredTeammates.length === 0) {
 			return '';
 		}
 		let total = 0;
-		const plusMultiplier = parseFloat(plusValue) || 1;
-		teammates.forEach(teammate => {
+		const yearToUse = year || selectedYear;
+		const plusMultiplier = getPlusMultiplier(yearToUse);
+		filteredTeammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
@@ -258,7 +357,7 @@
 	}
 
 	function calculateGrandTotal() {
-		if (!teammates || teammates.length === 0) {
+		if (!filteredTeammates || filteredTeammates.length === 0) {
 			return 0;
 		}
 		let grandTotal = 0;
@@ -278,12 +377,13 @@
 	}
 
 	function getColumnTotalNumeric(month, year = null) {
-		if (!teammates || teammates.length === 0) {
+		if (!filteredTeammates || filteredTeammates.length === 0) {
 			return 0;
 		}
 		let total = 0;
-		const plusMultiplier = parseFloat(plusValue) || 1;
-		teammates.forEach(teammate => {
+		const yearToUse = year || selectedYear;
+		const plusMultiplier = getPlusMultiplier(yearToUse);
+		filteredTeammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
@@ -319,12 +419,13 @@
 	}
 
 	function getOpexTotalNumeric(month, year = null) {
-		if (!teammates || teammates.length === 0) {
+		if (!filteredTeammates || filteredTeammates.length === 0) {
 			return 0;
 		}
 		let total = 0;
-		const plusMultiplier = parseFloat(plusValue) || 1;
-		teammates.forEach(teammate => {
+		const yearToUse = year || selectedYear;
+		const plusMultiplier = getPlusMultiplier(yearToUse);
+		filteredTeammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
@@ -346,12 +447,13 @@
 	}
 
 	function getCapexTotalNumeric(month, year = null) {
-		if (!teammates || teammates.length === 0) {
+		if (!filteredTeammates || filteredTeammates.length === 0) {
 			return 0;
 		}
 		let total = 0;
-		const plusMultiplier = parseFloat(plusValue) || 1;
-		teammates.forEach(teammate => {
+		const yearToUse = year || selectedYear;
+		const plusMultiplier = getPlusMultiplier(yearToUse);
+		filteredTeammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			const forecastValue = getForecastValue(teammate.id, month, year);
 			if (forecastValue && forecastValue !== '') {
@@ -372,7 +474,7 @@
 		return Math.round(total);
 	}
 
-	// Get all unique contracts from teammates
+	// Get all unique contracts from teammates (for filter buttons)
 	function getAllContracts() {
 		const contractSet = new Set();
 		teammates.forEach(teammate => {
@@ -388,14 +490,69 @@
 		return Array.from(contractSet).sort();
 	}
 
+	// Get unique contracts from filtered teammates (for charts)
+	function getFilteredContracts() {
+		const contractSet = new Set();
+		filteredTeammates.forEach(teammate => {
+			if (teammate.contracts && teammate.contracts.length > 0) {
+				teammate.contracts.forEach(contract => {
+					if (contract) contractSet.add(contract);
+				});
+			} else {
+				// If no contracts specified, use "Unassigned"
+				contractSet.add('Unassigned');
+			}
+		});
+		return Array.from(contractSet).sort();
+	}
+
+	// Contract color palette (avoiding OPEX blue and CAPEX red/pink)
+	const contractColorPalette = [
+		'rgb(153, 102, 255)',   // Purple
+		'rgb(75, 192, 192)',    // Teal/Cyan
+		'rgb(34, 197, 94)',     // Green
+		'rgb(255, 159, 64)',    // Orange
+		'rgb(255, 206, 86)',    // Yellow/Gold
+		'rgb(99, 102, 241)',    // Indigo
+		'rgb(16, 185, 129)',    // Emerald
+		'rgb(245, 158, 11)',    // Amber
+		'rgb(139, 92, 246)',    // Violet
+		'rgb(236, 72, 153)',    // Pink (distinct from CAPEX)
+		'rgb(59, 130, 246)',    // Blue (distinct from OPEX)
+		'rgb(132, 204, 22)'     // Lime Green
+	];
+
+	// Get color for a contract (matches chart colors)
+	function getContractColor(contractName) {
+		const contracts = getAllContracts();
+		const index = contracts.indexOf(contractName);
+		if (index === -1) {
+			return 'rgb(199, 199, 199)'; // Default gray for unknown contracts
+		}
+		return contractColorPalette[index % contractColorPalette.length];
+	}
+
+	// Determine if teammate has OPEX and/or CAPEX expense types
+	function getTeammateExpenseCategories(teammate) {
+		if (!teammate.expenseTypes || teammate.expenseTypes.length === 0) {
+			return { hasOpex: true, hasCapex: false }; // Default to OPEX if not specified
+		}
+		
+		const hasOpex = teammate.expenseTypes.some(et => isOpex(et));
+		const hasCapex = teammate.expenseTypes.some(et => !isOpex(et));
+		
+		return { hasOpex, hasCapex };
+	}
+
 	// Get spend for a specific contract in a specific month
 	function getContractSpendNumeric(contract, month, year = null) {
-		if (!teammates || teammates.length === 0) {
+		if (!filteredTeammates || filteredTeammates.length === 0) {
 			return 0;
 		}
 		let total = 0;
-		const plusMultiplier = parseFloat(plusValue) || 1;
-		teammates.forEach(teammate => {
+		const yearToUse = year || selectedYear;
+		const plusMultiplier = getPlusMultiplier(yearToUse);
+		filteredTeammates.forEach(teammate => {
 			if (!teammate || !teammate.id) return;
 			
 			// Check if teammate belongs to this contract
@@ -419,21 +576,7 @@
 
 	// Get chart data for contracts (returns array of datasets, one per contract)
 	function getContractChartData() {
-		const contracts = getAllContracts();
-		const colorPalette = [
-			'rgb(75, 192, 192)',
-			'rgb(54, 162, 235)',
-			'rgb(255, 99, 132)',
-			'rgb(255, 206, 86)',
-			'rgb(153, 102, 255)',
-			'rgb(255, 159, 64)',
-			'rgb(199, 199, 199)',
-			'rgb(83, 102, 255)',
-			'rgb(255, 99, 255)',
-			'rgb(99, 255, 132)',
-			'rgb(255, 132, 99)',
-			'rgb(132, 99, 255)'
-		];
+		const contracts = getFilteredContracts();
 		
 		if (viewMode === 'two-years') {
 			const year1 = selectedYear;
@@ -441,7 +584,7 @@
 			const allMonths = [...months.map(m => `${m} ${year1}`), ...months.map(m => `${m} ${year2}`)];
 			
 			return contracts.flatMap((contract, index) => {
-				const color = colorPalette[index % colorPalette.length];
+				const color = contractColorPalette[index % contractColorPalette.length];
 				const year1Data = months.map(month => getContractSpendNumeric(contract, month, year1));
 				const year2Data = months.map(month => getContractSpendNumeric(contract, month, year2));
 				// Make data continuous - both years show all 24 months continuously, no gaps
@@ -469,7 +612,7 @@
 		} else {
 			return contracts.map((contract, index) => {
 				const data = months.map(month => getContractSpendNumeric(contract, month));
-				const color = colorPalette[index % colorPalette.length];
+				const color = contractColorPalette[index % contractColorPalette.length];
 				return {
 					label: contract,
 					data: data,
@@ -510,18 +653,18 @@
 		if (chartInstance) {
 			chartInstance.data.labels = chartData.labels;
 			if (viewMode === 'two-years') {
-				// Make data continuous - both datasets show all 24 months continuously, no gaps
+				// Make data continuous - single dataset shows all 24 months continuously, no gaps
 				const allData = [...chartData.year1Data, ...chartData.year2Data];
 				chartInstance.data.datasets[0].data = allData;
-				chartInstance.data.datasets[1].data = allData;
-				// Update labels to show year range
+				// Remove second dataset if it exists
+				if (chartInstance.data.datasets.length > 1) {
+					chartInstance.data.datasets = [chartInstance.data.datasets[0]];
+				}
+				// Update label to show year range
 				chartInstance.data.datasets[0].label = `Total Forecast (${selectedYear}-${selectedYear + 1})`;
-				chartInstance.data.datasets[1].label = `Total Forecast (${selectedYear}-${selectedYear + 1})`;
-				// Ensure both years use the same green color
+				// Ensure green color
 				chartInstance.data.datasets[0].borderColor = 'rgb(75, 192, 192)';
 				chartInstance.data.datasets[0].backgroundColor = 'rgba(75, 192, 192, 0.1)';
-				chartInstance.data.datasets[1].borderColor = 'rgb(75, 192, 192)';
-				chartInstance.data.datasets[1].backgroundColor = 'rgba(75, 192, 192, 0.08)';
 			} else {
 				chartInstance.data.datasets[0].data = chartData.year1Data;
 				chartInstance.data.datasets[0].label = 'Total Forecast';
@@ -531,7 +674,7 @@
 			const ctx = chartCanvas.getContext('2d');
 			const datasets = viewMode === 'two-years' 
 				? (() => {
-					// Make data continuous - both datasets show all 24 months continuously, no gaps
+					// Make data continuous - single dataset shows all 24 months continuously, no gaps
 					const allData = [...chartData.year1Data, ...chartData.year2Data];
 					return [
 						{
@@ -539,15 +682,6 @@
 							data: allData,
 							borderColor: 'rgb(75, 192, 192)',
 							backgroundColor: 'rgba(75, 192, 192, 0.1)',
-							fill: true,
-							tension: 0.4
-						},
-						{
-							label: `Total Forecast (${selectedYear}-${selectedYear + 1})`,
-							data: allData,
-							borderColor: 'rgb(75, 192, 192)',
-							backgroundColor: 'rgba(75, 192, 192, 0.08)',
-							borderDash: [5, 5],
 							fill: true,
 							tension: 0.4
 						}
@@ -927,8 +1061,8 @@
 			<div class="card">
 				<div class="card-header d-flex justify-content-between align-items-center">
 					<h1 class="card-title mb-0">
-						<i class="bi bi-graph-up text-success me-2"></i>
-						Forecast
+						<i class="bi bi-clipboard2-data-fill text-secondary me-2"></i>
+						Forecasting
 					</h1>
 					<button 
 						class="btn btn-outline-secondary btn-sm" 
@@ -1017,15 +1151,36 @@
 									<option value={2030}>2030</option>
 								{/if}
 							</select>
-							<label for="plus-input" class="form-label mb-0 small">+</label>
-							<input
-								id="plus-input"
-								type="text"
-								class="form-control form-control-sm"
-								style="width: 60px;"
-								placeholder="0"
-								bind:value={plusValue}
-							/>
+							{#if viewMode === 'two-years'}
+								<label for="plus-input-year1" class="form-label mb-0 small">{selectedYear}:</label>
+								<input
+									id="plus-input-year1"
+									type="text"
+									class="form-control form-control-sm"
+									style="width: 60px;"
+									placeholder="1"
+									bind:value={plusValueYear1}
+								/>
+								<label for="plus-input-year2" class="form-label mb-0 small">{selectedYear + 1}:</label>
+								<input
+									id="plus-input-year2"
+									type="text"
+									class="form-control form-control-sm"
+									style="width: 60px;"
+									placeholder="1"
+									bind:value={plusValueYear2}
+								/>
+							{:else}
+								<label for="plus-input" class="form-label mb-0 small">+</label>
+								<input
+									id="plus-input"
+									type="text"
+									class="form-control form-control-sm"
+									style="width: 60px;"
+									placeholder="1"
+									bind:value={plusValue}
+								/>
+							{/if}
 						</div>
 					</div>
 					
@@ -1037,8 +1192,77 @@
 						</div>
 					{:else if teammates.length === 0}
 						<p class="text-muted">No teammates found. Add teammates in the admin panel.</p>
+					{:else if filteredTeammates.length === 0}
+						<p class="text-muted">No teammates match the selected filters.</p>
 					{:else}
-						<div class="mb-3 d-flex justify-content-end align-items-center">
+						<div class="mb-3 d-flex justify-content-between align-items-center">
+							<div class="d-flex gap-2 align-items-center">
+								<!-- Contract Filter Button Group -->
+								<div class="btn-group btn-group-sm" role="group" aria-label="Contract filter">
+									<button
+										type="button"
+										class="btn {selectedContractFilter === null ? 'btn-secondary' : 'btn-outline-secondary'}"
+										onclick={() => selectedContractFilter = null}
+									>
+										All Contracts
+									</button>
+									{#each getAllContracts() as contract}
+										<button
+											type="button"
+											class="btn {selectedContractFilter === contract ? 'btn-secondary' : 'btn-outline-secondary'}"
+											onclick={() => selectedContractFilter = contract}
+										>
+											{contract}
+										</button>
+									{/each}
+								</div>
+								<!-- OPEX/CAPEX Filter Button Group -->
+								<div class="btn-group btn-group-sm" role="group" aria-label="Expense type filter">
+									<button
+										type="button"
+										class="btn {selectedExpenseFilter === null ? 'btn-secondary' : 'btn-outline-secondary'}"
+										onclick={() => selectedExpenseFilter = null}
+									>
+										All Types
+									</button>
+									<button
+										type="button"
+										class="btn {selectedExpenseFilter === 'opex' ? 'btn-secondary' : 'btn-outline-secondary'}"
+										onclick={() => selectedExpenseFilter = 'opex'}
+									>
+										OPEX
+									</button>
+									<button
+										type="button"
+										class="btn {selectedExpenseFilter === 'capex' ? 'btn-secondary' : 'btn-outline-secondary'}"
+										onclick={() => selectedExpenseFilter = 'capex'}
+									>
+										CAPEX
+									</button>
+								</div>
+								<!-- Name Filter Input -->
+								<div class="input-group input-group-sm" style="width: 200px;">
+									<span class="input-group-text">
+										<i class="bi bi-search"></i>
+									</span>
+									<input
+										type="text"
+										class="form-control"
+										placeholder="Filter by name..."
+										bind:value={nameFilter}
+									/>
+									{#if nameFilter}
+										<button
+											class="btn btn-outline-secondary"
+											type="button"
+											onclick={() => nameFilter = ''}
+											aria-label="Clear filter"
+										>
+											<i class="bi bi-x"></i>
+										</button>
+									{/if}
+								</div>
+							</div>
 							<div class="text-end">
 								<strong class="small text-muted">Grand Total: </strong>
 								<span class="fw-bold">${calculateGrandTotal().toLocaleString('en-US')}</span>
@@ -1072,8 +1296,8 @@
 									{#if viewMode === 'two-years'}
 										<tr class="table-light">
 											<th class="text-end" rowspan="2">Name</th>
-											<th class="text-center" colspan="12">{selectedYear}</th>
-											<th class="text-center" colspan="12">{selectedYear + 1}</th>
+											<th class="text-start" colspan="12">{selectedYear}</th>
+											<th class="text-start" colspan="12">{selectedYear + 1}</th>
 										</tr>
 										<tr class="table-light">
 											<th class="text-end">JAN</th>
@@ -1120,7 +1344,7 @@
 									{/if}
 								</thead>
 								<tbody>
-									{#each teammates as teammate}
+									{#each filteredTeammates as teammate}
 										{@const tooltipContent = `
 											<div style="text-align: left;">
 												<div><strong>Contract:</strong> ${teammate.contracts?.join(', ') || 'None'}</div>
@@ -1132,18 +1356,38 @@
 										`}
 										{@const isExpanded = expandedRows.has(teammate.id)}
 										{@const monthsArray = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']}
+										{@const expenseCategories = getTeammateExpenseCategories(teammate)}
 										<tr>
-											<td class="text-nowrap">
-												<button
-													type="button"
-													class="btn btn-sm btn-link p-0 me-1"
-													onclick={() => toggleRow(teammate.id)}
-													aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
-												>
-													<i class="bi {isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'}"></i>
-												</button>
-												<strong>{teammate.name}</strong>
-												<span class="float-end">
+											<td class="text-nowrap" style="display: flex; align-items: center; justify-content: space-between;">
+												<div style="display: flex; align-items: center;">
+													<button
+														type="button"
+														class="btn btn-sm btn-link p-0 me-1"
+														onclick={() => toggleRow(teammate.id)}
+														aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
+													>
+														<i class="bi {isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'}"></i>
+													</button>
+													<strong>{teammate.name}</strong>
+												</div>
+												<div style="display: flex; align-items: center; gap: 0.5rem;">
+													{#if teammate.contracts && teammate.contracts.length > 0}
+														{#each teammate.contracts as contract}
+															<span 
+																class="badge text-white" 
+																style="font-size: 0.7rem; background-color: {getContractColor(contract)}; width: 60px; display: inline-block; text-align: center;"
+															>
+																{contract}
+															</span>
+														{/each}
+													{:else}
+														<span 
+															class="badge text-white" 
+															style="font-size: 0.7rem; background-color: {getContractColor('Unassigned')}; width: 60px; display: inline-block; text-align: center;"
+														>
+															Unassigned
+														</span>
+													{/if}
 													<i 
 														class="bi bi-info-circle text-info ms-1" 
 														style="cursor: help; font-size: 0.875rem;"
@@ -1153,7 +1397,7 @@
 														title={tooltipContent}
 														aria-label="View grouping values"
 													></i>
-												</span>
+												</div>
 											</td>
 											{#if viewMode === 'two-years'}
 												{@const year1 = selectedYear}
